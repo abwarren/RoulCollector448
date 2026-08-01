@@ -99,10 +99,25 @@ skill.)
    move the DB; systemd unit; LAN access. Not in phase 1 scope.
 
 ## Verification (phase 1 done when…)
-- `curl /api/spins` returns the live last 2000 with correct ordering/count.
-- Grid renders 40 rows of 50 on load, "show more" works, ticker updates ≤5s.
+- `curl /api/spins` returns the live last 2000 with correct ordering/count. ✓
+- Grid renders 40 rows of 50 on load, "show more" works, ticker updates ≤5s. ✓
 - Click 10 → all 10s highlight; neighbors mode → 0 gives exactly
-  {0, 3, 15, 32, 26} with two distinct colors.
-- Z-scores match a trusted reference computation on the same DB.
-- Hourly audit fires and shows last-500 vs overall drift.
-- Last-capture freshness shown (skill rule: never present stale data as live).
+  {0, 3, 15, 32, 26} with two distinct colors. ✓ (browser-verified)
+- Z-scores match a trusted reference computation on the same DB. ✓
+- Hourly audit fires and shows last-500 vs overall drift. ✓
+- Last-capture freshness shown (skill rule: never present stale data as live). ✓
+
+## Implemented notes (Aug 2026)
+
+- **Liveness:** the collector writes to SQLite in batches of 25 spins
+  (~18 min at 44s cadence), so DB timestamps lag. The API reads
+  `journalctl --user -u roulette-collector2.service` for true per-spin
+  liveness (spin lines every ~44s) and exposes both `live_*` and `db_*`
+  ages in `/api/health`. Cached 15s.
+- **Sleeper gaps** use positional rank (`ROW_NUMBER()`), NOT raw ids — the
+  collector's AUTOINCREMENT id accumulates across restarts (14k rows → 6M+ ids).
+- **Charts** are hand-rolled SVG (user denied Chart.js CDN download;
+  BLM's copy is CDN-at-runtime which needs internet). See ADR-0002.
+- **Live grid data** comes from the DB (lag ≤ ~18 min behind live); the
+  header ticker shows the journald-derived live spin. Grid tail catches up
+  on each 25-spin commit.

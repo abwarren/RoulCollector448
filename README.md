@@ -41,10 +41,24 @@ server comes up — no SQLite file access, no code changes.
 ## Status
 
 - [x] Plan + requirements in GitHub (this commit)
-- [ ] API layer
-- [ ] Spin grid (50/row, dark)
-- [ ] Click-to-highlight + neighbors mode
-- [ ] Stats panels (Z-scores, sleepers, streaks, rolling windows)
-- [ ] Live refresh
-- [ ] Localhost deploy + verification
-- [ ] Ubuntu server deploy
+- [x] API layer (FastAPI, read-only, port 4480, systemd: `roulette-dashboard.service`)
+- [x] Spin grid (50/row, 40 rows initial = 2000 spins, dark, show-more appends 2000)
+- [x] Click-to-highlight (Number mode) + neighbors mode (Nn, distinct colors)
+- [x] Stats panels (Z-scores, sleepers, streaks, rolling windows, hourly audit)
+- [x] Live refresh (5s poll; liveness via journald — collector commits to DB in
+      batches of 25 spins ~18min, so DB-only freshness would false-alarm)
+- [x] Localhost deploy + verification (16 pytest + live smoke + browser checks)
+- [ ] Ubuntu server deploy (phase 2)
+
+## Running
+
+```bash
+# already installed as a user systemd service
+systemctl --user status roulette-dashboard.service
+# open
+http://127.0.0.1:4480
+```
+
+API is at `:4480`; static frontend served from the same process.
+Test suite: `.venv/bin/python -m pytest tests/ -q` (uses a fixture DB).
+Live smoke test: `.venv/bin/python scripts/verify_live.py` (hits the running API).

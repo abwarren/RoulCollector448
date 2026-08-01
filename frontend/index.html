@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoulCollector448 — Table 448</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="title">TABLE 448 · AUTO ROULETTE</div>
+  <div class="live"><span id="liveDot" class="dot"></span><span id="liveLabel">LIVE</span></div>
+  <div class="meta">
+    last: <b id="lastSpin">—</b> · <span id="lastAge">—</span> · <span id="totalSpins">—</span> spins
+  </div>
+  <div class="controls">
+    <div class="mode-toggle">
+      <button id="modeNumber" class="mode active">Number</button>
+      <button id="modeNeighbors" class="mode">Neighbors</button>
+      <button id="clearHl" class="mode ghost">Clear</button>
+    </div>
+  </div>
+</header>
+
+<div id="gridWrap">
+  <div id="grid"></div>
+</div>
+
+<button id="showMore" class="show-more">
+  Show more (older) — <span id="shownCount">0</span> loaded of <span id="totalCount">—</span>
+</button>
+
+<main>
+  <section id="auditPanel" class="panel">
+    <h3>Hourly audit <span class="sub" id="auditMeta"></span></h3>
+    <div id="auditBody" class="audit-body"></div>
+  </section>
+
+  <div class="panels">
+    <div class="panel">
+      <h3>Z-scores <span class="sub">all-time</span></h3>
+      <div id="zTableWrap" class="table-wrap"><table id="zTable"></table></div>
+    </div>
+
+    <div class="panel">
+      <h3>Sleepers <span class="sub">spins since last hit</span></h3>
+      <div id="sleeperTableWrap" class="table-wrap"><table id="sleeperTable"></table></div>
+    </div>
+
+    <div class="panel">
+      <h3>Streaks</h3>
+      <div id="streakBox" class="streak-box"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Rolling window
+        <select id="windowSel">
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="500" selected>500</option>
+          <option value="1000">1000</option>
+        </select>
+      </h3>
+      <div class="chart-card"><div class="chart-title">Hits per number</div><svg id="rollChart" class="chart"></svg></div>
+      <div class="chart-card"><div class="chart-title">Red / Black balance over time (per 50 spins)</div><svg id="balChart" class="chart"></svg></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span id="footerNote">RoulCollector448 · API :4480 · data: /home/wa/roulette2_spins.db</span>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
