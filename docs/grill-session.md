@@ -62,6 +62,7 @@ Also avoids SQLite file-locking when multiple readers exist. See ADR-0001.
 ### Open questions (next grill round)
 - Port number: **4480** (confirmed 2026-08-01 — user rejected 8080, "use different internal port for localhost")
 - Live refresh mechanism (default proposal: 5s poll — collector commits every spin)
-- Initial visible rows (default proposal: 10 rows = 500 spins, +10 rows per click)
+- Initial visible rows: **40 rows = 2000 spins** (confirmed 2026-08-01 — "initial 40 rows last 2000"), "show more" appends older batches
+- **Hourly audit vs last 500:** the application runs a scheduled audit once per hour comparing current stats against the last 500 spins (confirmed 2026-08-01 — "application must do an audit hourly vs the last 500")
 - Confirm stack: FastAPI + vanilla JS SPA + Chart.js, no build step (BLM precedent)
 - Phase 2 server: which PC, Ubuntu Server version — deferred until server is booted

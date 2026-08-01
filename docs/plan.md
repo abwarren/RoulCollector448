@@ -50,8 +50,14 @@ All stats computed in SQL/Python from the same schema the collector writes:
 - 50 numbers per row, chronological, oldest top-left → newest bottom-right.
 - Black background. Red numbers = red fill; green = green fill; **black numbers
   get a light border** so they're visible on black (glossary: reverse black).
-- Live ticker at the top; new spin appends to the grid on refresh.
-- "Show more" appends the next 500 older spins (10 rows) without reload.
+- **Initial view:** 40 rows = **2000 spins** visible on load. "Show more" appends
+  the next older batch (2000 spins per click) without reload.
+- **Hourly audit:** the app runs an audit once per hour — current stats vs the
+  **last 500 spins** — and surfaces the comparison (drift detection). See
+  phase 6.
+- **Spin cadence (measured):** median **44s** per spin on Table 448
+  (last 1000 spins; typical range 40-46s; one 4.5h gap from collector downtime
+  skews the mean to 102s).
 
 ### Highlight interactions
 - **Mode A (default, "Number"):** click a cell (e.g. 10) → every occurrence of
@@ -84,15 +90,19 @@ skill.)
    stats-table cross-highlight.
 5. **Stats panels:** Z-score table, sleepers, streaks, rolling-window charts
    (Chart.js, line/bar as appropriate).
-6. **Integration:** run API on localhost, browser-verify every interaction
+6. **Hourly audit:** scheduled job (in-app, hourly) — recompute stats, compare
+   against the last 500 spins, render the drift (which numbers rotated
+   hot/cold, streak changes). Also usable on demand.
+7. **Integration:** run API on localhost, browser-verify every interaction
    against live data, check freshness rules (last capture vs now).
-7. **Ubuntu server deploy (later):** point API at this box's network address or
+8. **Ubuntu server deploy (later):** point API at this box's network address or
    move the DB; systemd unit; LAN access. Not in phase 1 scope.
 
 ## Verification (phase 1 done when…)
-- `curl /api/spins` returns the live last 500 with correct ordering/count.
-- Grid renders 50/row, "show more" works, ticker updates ≤5s.
+- `curl /api/spins` returns the live last 2000 with correct ordering/count.
+- Grid renders 40 rows of 50 on load, "show more" works, ticker updates ≤5s.
 - Click 10 → all 10s highlight; neighbors mode → 0 gives exactly
   {0, 3, 15, 32, 26} with two distinct colors.
 - Z-scores match a trusted reference computation on the same DB.
+- Hourly audit fires and shows last-500 vs overall drift.
 - Last-capture freshness shown (skill rule: never present stale data as live).
