@@ -9,7 +9,9 @@ read-only API, live on localhost, portable to an Ubuntu server.
   (`roulette2_spins.db`). Serves the static frontend too.
 - **Frontend:** vanilla JS SPA, no build step. Chart.js vendored locally
   (no CDN dependency). Dark theme.
-- **Config:** port + DB path in one small config, env-overridable.
+- **Config:** port + DB path in one small config, env-overridable. **Port: 4480**
+  (chosen over the default 8080 per user — "use different internal port for
+  localhost"; nothing else bound to it).
 
 ## API endpoints (read-only)
 

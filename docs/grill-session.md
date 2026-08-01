@@ -60,7 +60,7 @@ Also avoids SQLite file-locking when multiple readers exist. See ADR-0001.
    (droughts), **streaks**, **rolling window** charts (50/100/200/500/1000).
 
 ### Open questions (next grill round)
-- Port number (default proposal: 8080)
+- Port number: **4480** (confirmed 2026-08-01 — user rejected 8080, "use different internal port for localhost")
 - Live refresh mechanism (default proposal: 5s poll — collector commits every spin)
 - Initial visible rows (default proposal: 10 rows = 500 spins, +10 rows per click)
 - Confirm stack: FastAPI + vanilla JS SPA + Chart.js, no build step (BLM precedent)
