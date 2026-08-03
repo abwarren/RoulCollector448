@@ -249,6 +249,11 @@ async function tickHealth() {
     $("liveDot").className = "dot bad";
     $("liveLabel").textContent = "ERR";
   }
+  // Sleepers panel tracks the live feed too — a number that hits stops being
+  // a sleeper the moment the spin lands. Refresh every tick; the API is a
+  // cheap COUNT + grouped query on the read-only DB, and the live-merge
+  // keeps it correct even between 25-spin DB batch commits.
+  loadSleepers().catch(() => {});
   // adaptive cadence: no new number yet -> hyperpoll (2s); new spin landed -> 44s
   scheduleNext(newSpin ? POLL_MS : HYPER_POLL_MS);
 }
