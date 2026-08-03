@@ -86,12 +86,19 @@ def numbers_stats(conn: sqlite3.Connection, limit=None) -> dict:
     return {"total": n, "numbers": out}
 
 
-def sleepers(conn: sqlite3.Connection) -> dict:
+def sleepers(conn: sqlite3.Connection, live_spins=None) -> dict:
     """Current drought per number: spins since its last hit.
 
     NOTE: uses positional rank, not raw id — the collector's AUTOINCREMENT
     id accumulates across restarts (14k rows can have 6M+ ids).
+
+    `live_spins` = chronological list of {"number", "time"} from the
+    collector journald feed that are NOT yet committed to the DB (it
+    commits in 25-spin batches ≈ 18 min at 44s cadence). They are merged
+    as virtual trailing spins so a number that hit live stops showing as a
+    sleeper immediately instead of after the next DB commit.
     """
+    live_spins = live_spins or []
     total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
     rows = conn.execute(
         "WITH ranked AS (SELECT id, number, captured_at, "
@@ -99,17 +106,53 @@ def sleepers(conn: sqlite3.Connection) -> dict:
         "SELECT number, MAX(pos) AS last_pos, MAX(captured_at) AS last_at "
         "FROM ranked GROUP BY number"
     ).fetchall()
-    out = [
-        {
-            "number": r["number"],
-            "color": color_of(r["number"]),
-            "gap": total - r["last_pos"],
-            "last_hit_at": r["last_at"],
-        }
-        for r in rows
-    ]
+
+    # last live-window occurrence per number (0-based, chronological order)
+    live_by_num = {}
+    for i, s in enumerate(live_spins):
+        live_by_num[s["number"]] = i
+
+    grand_total = total + len(live_spins)
+    out = []
+    for r in rows:
+        num = r["number"]
+        if num in live_by_num:
+            gap = grand_total - (total + live_by_num[num] + 1)
+            last_at = _live_ts(live_spins[live_by_num[num]]["time"], r["last_at"])
+        else:
+            gap = grand_total - r["last_pos"]
+            last_at = r["last_at"]
+        out.append(
+            {
+                "number": num,
+                "color": color_of(num),
+                "gap": gap,
+                "last_hit_at": last_at,
+            }
+        )
     out.sort(key=lambda d: d["gap"], reverse=True)
-    return {"total": total, "sleepers": out}
+    return {"total": total, "live": len(live_spins), "sleepers": out}
+
+
+def _live_ts(hms: str, db_last_at) -> str:
+    """Journald 'HH:MM:SS' -> ISO 'YYYY-MM-DDTHH:MM:SS', guarding rollover.
+
+    Live spins are always newer than the newest DB row; if today's date
+    would put the live time BEFORE the DB's last hit, the spin is from
+    yesterday (midnight rollover).
+    """
+    import datetime
+
+    day = datetime.date.today()
+    ts = f"{day.isoformat()}T{hms}"
+    try:
+        if datetime.datetime.fromisoformat(ts) < datetime.datetime.fromisoformat(
+            db_last_at
+        ) - datetime.timedelta(hours=12):
+            ts = f"{(day - datetime.timedelta(days=1)).isoformat()}T{hms}"
+    except (TypeError, ValueError):
+        pass
+    return ts
 
 
 def streaks(conn: sqlite3.Connection) -> dict:

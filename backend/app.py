@@ -30,7 +30,9 @@ FRONTEND_DIR = os.path.join(
 # true liveness signal. Cache the read for 15s (health is polled every 5s).
 _journal_cache = {"at": 0.0, "ok": False, "line": "", "age": None}
 
-_SPIN_LINE_RE = re.compile(r"\[(\d{2}:\d{2}:\d{2})\]\s+#\d+:\s+(\d+)\s+(\w+)")
+_SPIN_LINE_RE = re.compile(
+    r"\[(\d{2}:\d{2}:\d{2})\]\s+#(\d+):\s+(\d+)\s+(\w+)"
+)
 
 # how many journald spin lines to keep for the live overlay (covers ~1 DB batch)
 LIVE_SPINS_KEEP = 40
@@ -71,10 +73,37 @@ def _parse_live_spins(lines: str):
     for line in reversed(lines.splitlines()):
         m = _SPIN_LINE_RE.search(line)
         if m:
-            spins.append({"time": m.group(1), "number": int(m.group(2)), "color": m.group(3)})
+            spins.append(
+                {
+                    "time": m.group(1),
+                    "n": int(m.group(2)),
+                    "number": int(m.group(3)),
+                    "color": m.group(4),
+                }
+            )
             if len(spins) >= LIVE_SPINS_KEEP:
                 break
     return spins
+
+
+def _live_spins_uncommitted(db_total: int):
+    """Journald spins newer than the DB, chronological (not yet committed).
+
+    The collector's journald counter equals its dataset position, so any
+    spin with n > db_total is not yet in the DB (commits are 25-spin
+    batches). Guard on n <= db_total + LIVE_SPINS_KEEP so a hypothetical
+    counter reset (n restarts at 1) degrades to DB-only instead of
+    double-counting the whole journal.
+    """
+    jl = _journal_last()
+    if not jl["ok"]:
+        return []
+    out = []
+    for line in jl["line"].splitlines():
+        m = _SPIN_LINE_RE.search(line)
+        if m and db_total < int(m.group(2)) <= db_total + LIVE_SPINS_KEEP:
+            out.append({"number": int(m.group(3)), "time": m.group(1)})
+    return out
 
 
 def _compute_audit():
@@ -217,9 +246,14 @@ def stats_numbers(limit: int | None = Query(None, ge=1, le=100000)):
 
 @app.get("/api/stats/sleepers")
 def stats_sleepers():
+    """Current drought per number — merged with uncommitted journald spins
+    so the panel is realtime-correct instead of lagging the 25-spin DB
+    batches (~18 min at 44s cadence)."""
     conn = db.connect()
     try:
-        return stats.sleepers(conn)
+        total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
+        live = _live_spins_uncommitted(total)
+        return stats.sleepers(conn, live_spins=live)
     finally:
         conn.close()
 

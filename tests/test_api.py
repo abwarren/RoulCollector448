@@ -82,6 +82,42 @@ def test_stats_sleepers_sorted():
     assert by_num[36] == 0
 
 
+def test_sleepers_live_merge():
+    # 5 uncommitted journald spins after the fixture's last DB spin (36):
+    # positions 1111..1115 -> 12, 7, 12, 3, 9 (12's LAST hit is at 1113).
+    from backend.db import connect
+    from backend.stats import sleepers
+
+    conn = connect()
+    try:
+        live = [
+            {"number": 12, "time": "23:59:58"},
+            {"number": 7, "time": "00:00:42"},
+            {"number": 12, "time": "00:01:26"},
+            {"number": 3, "time": "00:02:10"},
+            {"number": 9, "time": "00:02:54"},
+        ]
+        merged = sleepers(conn, live_spins=live)
+        m = {x["number"]: x for x in merged["sleepers"]}
+        assert merged["total"] == 1110  # DB count unchanged
+        assert merged["live"] == 5
+        # live hits: gap counts only spins AFTER their last live occurrence
+        assert m[9]["gap"] == 0    # hit last spin (1115)
+        assert m[3]["gap"] == 1    # hit 1114
+        assert m[12]["gap"] == 2   # last hit 1113 (also hit 1111)
+        assert m[7]["gap"] == 3    # hit 1112
+        # DB-only numbers: 5 virtual spins push their gaps up by 5
+        assert m[36]["gap"] == 5   # was 0
+        assert m[0]["gap"] == 41   # was 36
+        # live last_hit_at carries the live time (today/rollover-safe ISO)
+        assert m[9]["last_hit_at"].endswith("T00:02:54")
+        # empty live list == DB-only behavior
+        base = sleepers(conn)
+        assert base == sleepers(conn, live_spins=[])
+    finally:
+        conn.close()
+
+
 def test_stats_streaks_shape():
     # Fixture cycles 0..36 by NUMBER, so color runs come from number-color
     # adjacency (e.g. 17,18,19 are all Red; 28,29 both Black). Compute the
