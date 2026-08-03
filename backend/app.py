@@ -32,6 +32,9 @@ _journal_cache = {"at": 0.0, "ok": False, "line": "", "age": None}
 
 _SPIN_LINE_RE = re.compile(r"\[(\d{2}:\d{2}:\d{2})\]\s+#\d+:\s+(\d+)\s+(\w+)")
 
+# how many journald spin lines to keep for the live overlay (covers ~1 DB batch)
+LIVE_SPINS_KEEP = 40
+
 
 def _journal_last():
     """Last journald lines for the collector: timestamp age + last spin."""
@@ -40,7 +43,7 @@ def _journal_last():
         return _journal_cache
     try:
         out = subprocess.run(
-            ["journalctl", "--user", "-u", COLLECTOR_SERVICE, "-n", "8",
+            ["journalctl", "--user", "-u", COLLECTOR_SERVICE, "-n", "60",
              "--no-pager", "-o", "short-iso"],
             capture_output=True, text=True, timeout=5,
             env={**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"},
@@ -62,13 +65,16 @@ def _journal_last():
     return _journal_cache
 
 
-def _parse_live_spin(lines: str):
-    """Last spin line in the journal tail (spin lines vs status lines)."""
+def _parse_live_spins(lines: str):
+    """ALL spin lines in the journal tail, newest first (for realtime grid)."""
+    spins = []
     for line in reversed(lines.splitlines()):
         m = _SPIN_LINE_RE.search(line)
         if m:
-            return {"time": m.group(1), "number": int(m.group(2)), "color": m.group(3)}
-    return None
+            spins.append({"time": m.group(1), "number": int(m.group(2)), "color": m.group(3)})
+            if len(spins) >= LIVE_SPINS_KEEP:
+                break
+    return spins
 
 
 def _compute_audit():
@@ -133,7 +139,8 @@ def health():
             else None
         )
         jl = _journal_last()
-        live = _parse_live_spin(jl["line"]) if jl["ok"] else None
+        live_all = _parse_live_spins(jl["line"]) if jl["ok"] else []
+        live = live_all[0] if live_all else None
         live_age = jl["age"]
         return {
             "ok": True,
@@ -143,6 +150,7 @@ def health():
             "last_captured_at": last_captured,
             "db_age_seconds": round(db_age, 1) if db_age is not None else None,
             "live_last_spin": live,
+            "live_spins": live_all,
             "live_age_seconds": round(live_age, 1) if live_age is not None else None,
             "collector_alive": (live_age is not None and live_age < 180)
                                or (db_age is not None and db_age < 180),

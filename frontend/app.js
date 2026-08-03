@@ -27,6 +27,7 @@ const state = {
   sel: null,      // selected number or null
   lastLiveKey: null, // last seen live spin (time|number) — for new-spin detect
   liveSpin: null,  // newest spin from journald (may not be in DB yet)
+  liveSpins: [],   // ALL journald live spins (newest first) — realtime grid
   dbLatest: null,  // newest spin actually in the DB (from API)
 };
 
@@ -58,12 +59,19 @@ function renderGrid() {
   const hl = highlightSet();
   const frag = document.createDocumentFragment();
   let newest = state.spins.slice().reverse(); // NEWEST FIRST — latest at top
-  // overlay the live journald spin so the grid moves on every spin,
-  // not only on DB batch commits (every 25 spins ≈ 18 min)
-  const dbTop = state.dbLatest;
-  const dup = state.liveSpin && dbTop && dbTop.number === state.liveSpin.number &&
-    timeMatch((dbTop.captured_at || "").slice(11, 19), state.liveSpin.time);
-  if (state.liveSpin && !dup) newest = [state.liveSpin, ...newest];
+  // overlay ALL journald live spins (newest first) so the grid shows every
+  // spin captured between DB batch commits (up to ~40 ≈ one batch). Drop any
+  // live spin already present in the loaded DB slice (same number AND ~same
+  // second) so committed spins aren't duplicated.
+  const liveOverlay = (state.liveSpins && state.liveSpins.length ? state.liveSpins
+    : state.liveSpin ? [state.liveSpin] : []).filter((ls) => {
+      if (!state.spins.length) return true;
+      const t = ls.time;
+      return !state.spins.some((s) =>
+        s.number === ls.number && timeMatch((s.captured_at || "").slice(11, 19), t)
+      );
+    });
+  if (liveOverlay.length) newest = liveOverlay.concat(newest);
   for (let i = 0; i < newest.length; i += SPINS_PER_ROW) {
     const row = document.createElement("div");
     row.className = "row50";
@@ -194,7 +202,13 @@ async function tickHealth() {
     $("liveDot").className = "dot " + (h.collector_alive ? "ok" : "bad");
     $("liveLabel").textContent = h.collector_alive ? "LIVE" : "STALLED";
     $("totalSpins").textContent = h.total_spins;
-    const live = h.live_last_spin || h.last_spin;
+    // ALL live journald spins — grid shows these on top of DB data so nothing
+    // captured between DB batch commits (e.g. 7, 14) is ever skipped
+    if (Array.isArray(h.live_spins) && h.live_spins.length) {
+      state.liveSpins = h.live_spins;
+      state.liveSpin = h.live_spins[0] || null;
+    }
+    const live = h.live_last_spin || state.liveSpins?.[0] || h.last_spin;
     if (live) {
       $("lastSpin").textContent = `${live.number} ${live.color}`;
       const age = h.live_age_seconds ?? h.db_age_seconds;
