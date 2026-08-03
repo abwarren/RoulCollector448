@@ -42,7 +42,8 @@ server comes up — no SQLite file access, no code changes.
 
 - [x] Plan + requirements in GitHub (this commit)
 - [x] API layer (FastAPI, read-only, port 4480, systemd: `roulette-dashboard.service`)
-- [x] Spin grid (50/row, 40 rows initial = 2000 spins, dark, show-more appends 2000)
+- [x] Spin grid (25/row — whole row fits one page, NO gaps, white blocks with
+      red/black/green text, 2000 spins initial, show-more appends 2000)
 - [x] Click-to-highlight (Number mode) + neighbors mode (Nn, distinct colors)
 - [x] Stats panels (Z-scores, sleepers, streaks, rolling windows, hourly audit)
 - [x] Live refresh (5s poll; liveness via journald — collector commits to DB in

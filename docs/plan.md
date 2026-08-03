@@ -47,10 +47,11 @@ All stats computed in SQL/Python from the same schema the collector writes:
 ```
 
 ### Grid rules
-- 50 numbers per row, chronological, oldest top-left → newest bottom-right.
-- Black background. Red numbers = red fill; green = green fill; **black numbers
-  get a light border** so they're visible on black (glossary: reverse black).
-- **Initial view:** 40 rows = **2000 spins** visible on load. "Show more" appends
+- 25 numbers per row (whole row fits on one page), chronological,
+  oldest top-left → newest bottom-right.
+- **White blocks, NO gaps** — cells touch each other; hairline 1px border only.
+- Text colored by number: red / black / green on white. Big blocks.
+- **Initial view:** 2000 spins (80 rows) visible on load. "Show more" appends
   the next older batch (2000 spins per click) without reload.
 - **Hourly audit:** the app runs an audit once per hour — current stats vs the
   **last 500 spins** — and surfaces the comparison (drift detection). See

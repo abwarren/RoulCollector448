@@ -14,16 +14,18 @@ function nnCluster(n) {
 
 /* ---------------- state ---------------- */
 
-const ROWS = 40;          // initial 40 rows
-const SPINS_PER_ROW = 50; // 50 per row
-const BATCH = ROWS * SPINS_PER_ROW; // 2000 per "show more" click
-const POLL_MS = 5000;
+const ROWS = 80;          // 2000 spins / 25 per row
+const SPINS_PER_ROW = 25; // 25 per row (whole row fits one page)
+const BATCH = 2000;       // per "show more" click
+const POLL_MS = 44000;     // normal cadence — matches spin rate (~44s/spin)
+const HYPER_POLL_MS = 2000; // hyperpoll until a new number lands
 
 const state = {
   spins: [],      // chronological, oldest first (all loaded)
   total: 0,
   mode: "number", // "number" | "neighbors"
   sel: null,      // selected number or null
+  lastLiveKey: null, // last seen live spin (time|number) — for new-spin detect
 };
 
 const $ = (id) => document.getElementById(id);
@@ -47,19 +49,28 @@ function renderGrid() {
   const grid = $("grid");
   const hl = highlightSet();
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < state.spins.length; i += SPINS_PER_ROW) {
+  const newest = state.spins.slice().reverse(); // NEWEST FIRST — latest at top
+  for (let i = 0; i < newest.length; i += SPINS_PER_ROW) {
     const row = document.createElement("div");
     row.className = "row50";
-    for (const s of state.spins.slice(i, i + SPINS_PER_ROW)) {
+    for (const s of newest.slice(i, i + SPINS_PER_ROW)) {
       const b = document.createElement("button");
       b.className = "cell " + cellClass(s.number);
       b.textContent = s.number;
       b.dataset.n = s.number;
+      if (i === 0) b.classList.add("latest"); // newest spin → pink arrow
       if (hl && hl.hit.has(s.number)) b.classList.add("hl-hit");
       if (hl && hl.nb.has(s.number)) b.classList.add("hl-nb");
       row.appendChild(b);
     }
     frag.appendChild(row);
+  }
+  // mark doubles: same number as the immediately preceding (older) spin (purple)
+  const cells = frag.querySelectorAll(".cell");
+  for (let i = 0; i < newest.length; i++) {
+    if (newest[i + 1] && newest[i].number === newest[i + 1].number) {
+      cells[i].classList.add("hl-double");
+    }
   }
   grid.replaceChildren(frag);
   $("shownCount").textContent = state.spins.length;
@@ -155,6 +166,9 @@ async function tickHealth() {
         $("lastAge").title = `DB commit lag: ${h.db_age_seconds ?? "—"}s`;
       }
     }
+    const liveKey = live ? `${live.time ?? ""}|${live.number}` : null;
+    const newSpin = liveKey !== null && liveKey !== state.lastLiveKey;
+    state.lastLiveKey = newSpin ? liveKey : state.lastLiveKey;
     if (h.total_spins > state.spins.length) {
       const d = await api("/api/spins?offset=0&limit=" + BATCH);
       const known = new Set(state.spins.slice(0, BATCH).map((s) => s.id));
@@ -168,6 +182,13 @@ async function tickHealth() {
     $("liveDot").className = "dot bad";
     $("liveLabel").textContent = "ERR";
   }
+  // adaptive cadence: no new number yet -> hyperpoll (2s); new spin landed -> 44s
+  scheduleNext(newSpin ? POLL_MS : HYPER_POLL_MS);
+}
+
+function scheduleNext(ms) {
+  clearTimeout(state.timer);
+  state.timer = setTimeout(tickHealth, ms);
 }
 
 /* ---------------- stats ---------------- */
@@ -329,8 +350,7 @@ async function boot() {
   loadStreaks();
   loadRolling();
   loadAudit();
-  tickHealth();
-  setInterval(tickHealth, POLL_MS);
+  tickHealth();                       // starts adaptive poll loop (2s/44s)
   setInterval(loadAudit, 3600 * 1000); // keep the audit panel fresh hourly
 }
 
