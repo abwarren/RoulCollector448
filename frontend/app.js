@@ -58,7 +58,7 @@ function renderGrid() {
       b.className = "cell " + cellClass(s.number);
       b.textContent = s.number;
       b.dataset.n = s.number;
-      if (i === 0) b.classList.add("latest"); // newest spin → pink arrow
+      if (i === 0 && s === newest[0]) b.classList.add("latest"); // newest spin → pink arrow
       if (hl && hl.hit.has(s.number)) b.classList.add("hl-hit");
       if (hl && hl.nb.has(s.number)) b.classList.add("hl-nb");
       row.appendChild(b);
