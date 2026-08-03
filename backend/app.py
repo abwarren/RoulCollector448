@@ -101,6 +101,15 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="RoulCollector448", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    """Never cache frontend files — any reload picks up edits immediately."""
+    resp = await call_next(request)
+    if request.url.path in ("/", "/index.html", "/app.js", "/style.css"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 def _now_iso(ts: str) -> datetime.datetime:
     try:
         return datetime.datetime.fromisoformat(ts)

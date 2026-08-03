@@ -17,8 +17,8 @@ function nnCluster(n) {
 const ROWS = 80;          // 2000 spins / 25 per row
 const SPINS_PER_ROW = 25; // 25 per row (whole row fits one page)
 const BATCH = 2000;       // per "show more" click
-const POLL_MS = 44000;     // normal cadence — matches spin rate (~44s/spin)
-const HYPER_POLL_MS = 2000; // hyperpoll until a new number lands
+const POLL_MS = 5000;      // poll every 5s — realtime
+const HYPER_POLL_MS = 5000; // same cadence; no need for adaptive
 
 const state = {
   spins: [],      // chronological, oldest first (all loaded)
@@ -26,6 +26,8 @@ const state = {
   mode: "number", // "number" | "neighbors"
   sel: null,      // selected number or null
   lastLiveKey: null, // last seen live spin (time|number) — for new-spin detect
+  liveSpin: null,  // newest spin from journald (may not be in DB yet)
+  dbLatest: null,  // newest spin actually in the DB (from API)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -45,11 +47,23 @@ function cellClass(n) {
   return [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36].includes(n) ? "r" : "b";
 }
 
+function timeMatch(a, b) {
+  if (!a || !b) return false;
+  const p = (s) => { const [h, m, sec] = s.split(":").map(Number); return h * 3600 + m * 60 + sec; };
+  return Math.abs(p(a) - p(b)) <= 2;
+}
+
 function renderGrid() {
   const grid = $("grid");
   const hl = highlightSet();
   const frag = document.createDocumentFragment();
-  const newest = state.spins.slice().reverse(); // NEWEST FIRST — latest at top
+  let newest = state.spins.slice().reverse(); // NEWEST FIRST — latest at top
+  // overlay the live journald spin so the grid moves on every spin,
+  // not only on DB batch commits (every 25 spins ≈ 18 min)
+  const dbTop = state.dbLatest;
+  const dup = state.liveSpin && dbTop && dbTop.number === state.liveSpin.number &&
+    timeMatch((dbTop.captured_at || "").slice(11, 19), state.liveSpin.time);
+  if (state.liveSpin && !dup) newest = [state.liveSpin, ...newest];
   for (let i = 0; i < newest.length; i += SPINS_PER_ROW) {
     const row = document.createElement("div");
     row.className = "row50";
@@ -65,8 +79,9 @@ function renderGrid() {
     }
     frag.appendChild(row);
   }
-  // mark doubles: same number as the immediately preceding (older) spin (purple)
+  // mark last 10 spins (orange fill) + doubles (purple outline)
   const cells = frag.querySelectorAll(".cell");
+  for (let i = 0; i < Math.min(10, newest.length); i++) cells[i].classList.add("recent");
   for (let i = 0; i < newest.length; i++) {
     if (newest[i + 1] && newest[i].number === newest[i + 1].number) {
       cells[i].classList.add("hl-double");
@@ -75,6 +90,26 @@ function renderGrid() {
   grid.replaceChildren(frag);
   $("shownCount").textContent = state.spins.length;
   $("totalCount").textContent = state.total;
+  renderHits();
+}
+
+function renderHits() {
+  const p = $("hitsPanel");
+  if (state.sel === null) { p.hidden = true; return; }
+  const hits = state.spins.filter((s) => s.number === state.sel);
+  $("hitsNum").textContent = state.sel;
+  $("hitsMeta").textContent = `${hits.length} hits in loaded data · newest first`;
+  const list = $("hitsList");
+  const frag = document.createDocumentFragment();
+  for (const h of hits.slice().reverse().slice(0, 40)) {
+    const chip = document.createElement("span");
+    chip.className = "hit-chip " + cellClass(h.number);
+    chip.textContent = `${h.number} @${(h.captured_at || "").slice(11, 19)}`;
+    chip.title = h.captured_at;
+    frag.appendChild(chip);
+  }
+  list.replaceChildren(frag);
+  p.hidden = false;
 }
 
 function highlightSet() {
@@ -136,6 +171,7 @@ async function loadInitial() {
   ]);
   state.total = count.total;
   state.spins = spins.spins;
+  state.dbLatest = spins.spins[spins.spins.length - 1] || null;
   renderGrid();
 }
 
@@ -152,6 +188,7 @@ $("showMore").addEventListener("click", async () => {
 /* ---------------- live ticker ---------------- */
 
 async function tickHealth() {
+  let newSpin = false;
   try {
     const h = await api("/api/health");
     $("liveDot").className = "dot " + (h.collector_alive ? "ok" : "bad");
@@ -167,16 +204,32 @@ async function tickHealth() {
       }
     }
     const liveKey = live ? `${live.time ?? ""}|${live.number}` : null;
-    const newSpin = liveKey !== null && liveKey !== state.lastLiveKey;
+    newSpin = liveKey !== null && liveKey !== state.lastLiveKey;
     state.lastLiveKey = newSpin ? liveKey : state.lastLiveKey;
+    if (h.live_last_spin && h.live_last_spin.number !== undefined) {
+      state.liveSpin = {
+        number: h.live_last_spin.number,
+        color: h.live_last_spin.color,
+        time: h.live_last_spin.time || "",
+      };
+      if (newSpin) {
+        renderGrid();
+        applyHighlightToTables();
+      }
+    }
     if (h.total_spins > state.spins.length) {
       const d = await api("/api/spins?offset=0&limit=" + BATCH);
       const known = new Set(state.spins.slice(0, BATCH).map((s) => s.id));
       state.total = d.total;
       const fresh = d.spins.filter((s) => !known.has(s.id));
-      state.spins = fresh.concat(state.spins);
+      state.spins = state.spins.concat(fresh); // append — keep oldest→newest order
+      if (d.spins.length) state.dbLatest = d.spins[d.spins.length - 1];
       renderGrid();
       applyHighlightToTables();
+    } else if (newSpin) {
+      // grid shows live spins even before the DB batch commits — always
+      // keep the newest live spin at A1
+      renderGrid();
     }
   } catch (err) {
     $("liveDot").className = "dot bad";

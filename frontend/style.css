@@ -53,7 +53,8 @@ header {
 .mode.ghost { color: var(--muted); }
 
 #gridWrap { overflow-x: auto; padding: 10px 10px 4px; }
-#grid {
+#grid { display: block; }
+.row50 {
   display: grid;
   grid-template-columns: repeat(25, minmax(0, 1fr));
   gap: 0;               /* NO GAPS — blocks touch each other */
@@ -72,8 +73,21 @@ header {
 .cell.b { color: #111111; }     /* white bg, black text */
 .cell.g { color: #1b5e20; }     /* white bg, green text */
 .cell:hover { background: #f5f5f5; }
+.cell.hl-hit { outline: 3px solid var(--hl-hit); box-shadow: 0 0 10px var(--hl-hit); }
 .cell.hl-nb { outline: 3px solid var(--hl-nb); box-shadow: 0 0 10px var(--hl-nb); }
 .cell.hl-double { outline: 3px solid #9c27b0; box-shadow: 0 0 10px #9c27b0; }
+
+/* hits panel — all occurrences of the clicked number */
+.hits-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.hit-chip {
+  padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px;
+  font: 600 12px ui-monospace, monospace; cursor: default;
+}
+.hit-chip.r { color: var(--red); } .hit-chip.b { color: var(--text); } .hit-chip.g { color: var(--green); }
+
+/* last 10 spins — orange fill */
+.cell.recent { background: #ffcc80; }
+.cell.recent:hover { background: #ffb74d; }
 
 /* PINK ARROW → newest spin (top-left cell) */
 .cell.latest { position: relative; }
@@ -150,5 +164,5 @@ tbody tr.hl-row td { color: #b2ebf2; }
 footer { color: #444; font-size: 11px; padding: 8px 14px 18px; }
 
 @media (max-width: 800px) {
-  #grid { grid-template-columns: repeat(13, minmax(0, 1fr)); }
+  .row50 { grid-template-columns: repeat(13, minmax(0, 1fr)); }
 }
