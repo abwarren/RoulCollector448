@@ -395,7 +395,7 @@ async function loadAudit() {
   try {
     const d = await api("/api/audit");
     const a = d.audit || {};
-    $("auditMeta").textContent = `last ${d.generated_at ? d.generated_at.slice(0, 19).replace("T", " ") : "—"} · every ${Math.round(d.interval_seconds / 3600)}h · vs last ${d.window}`;
+    $("auditMeta").textContent = `last ${d.generated_at ? d.generated_at.slice(0, 19).replace("T", " ") : "—"} · vs last ${d.window} spins · incl ${(d.audit && d.audit.live) || 0} live`;
     const rows = (a.drift || []).slice(0, 6);
     $("auditBody").innerHTML = `
       <div class="audit-row">

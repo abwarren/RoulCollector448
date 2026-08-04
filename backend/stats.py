@@ -46,8 +46,18 @@ def _parity(rows):
     return d
 
 
-def numbers_stats(conn: sqlite3.Connection, limit=None) -> dict:
-    """Per-number hits/expected/z (+ last-100 hits for all-time)."""
+def numbers_stats(conn: sqlite3.Connection, limit=None, live_spins=None) -> dict:
+    """Per-number hits/expected/z (+ last-100 hits for all-time).
+
+    `live_spins` = chronological uncommitted journald spins (newer than
+    anything in the DB). In the windowed branch they merge as virtual
+    trailing spins so `limit` means the TRUE last `limit` spins (DB + live),
+    not the last `limit` committed rows — without this, a 25-spin DB batch
+    lag (~18 min at 44s cadence) makes a "last 500" window silently the last
+    ~476-500 committed spins. All-time ignores live spins to stay consistent
+    with /api/stats/numbers (the journald guard drops them once committed).
+    """
+    live_spins = live_spins or []
     if limit is None:
         n = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
         rows = conn.execute(
@@ -59,16 +69,22 @@ def numbers_stats(conn: sqlite3.Connection, limit=None) -> dict:
                 "ORDER BY id DESC LIMIT 100) GROUP BY number"
             ).fetchall()
         )
+        by_num = {r["number"]: r["hits"] for r in rows}
     else:
-        n = limit
+        db_take = max(0, limit - len(live_spins))
         rows = conn.execute(
             "SELECT number, COUNT(*) AS hits FROM (SELECT number FROM roulette_spins "
             "ORDER BY id DESC LIMIT ?) GROUP BY number",
-            (limit,),
+            (db_take,),
         ).fetchall()
+        by_num = {r["number"]: r["hits"] for r in rows}
+        for s in live_spins:
+            by_num[s["number"]] = by_num.get(s["number"], 0) + 1
+        # true window size: sum(hits) = raw DB rows in the window (GROUP BY
+        # collapses to <=37 rows; every spin contributes exactly one hit)
+        n = sum(r["hits"] for r in rows) + len(live_spins)
         last100 = {}
 
-    by_num = {r["number"]: r["hits"] for r in rows}
     out = []
     for num in range(37):
         hits = by_num.get(num, 0)
@@ -257,10 +273,16 @@ def rolling(conn: sqlite3.Connection, window: int) -> dict:
     }
 
 
-def audit(conn: sqlite3.Connection, window: int = 500) -> dict:
-    """Hourly audit: current (all-time) stats vs the last `window` spins."""
+def audit(conn: sqlite3.Connection, window: int = 500, live_spins=None) -> dict:
+    """Hourly audit: current (all-time) stats vs the true last `window` spins.
+
+    `live_spins` (uncommitted journald spins) merge into the last-window side
+    so the window is the TRUE last `window` spins — same live-merge as
+    sleepers. All-time stays DB-only (consistent with /api/stats/numbers).
+    """
+    live_spins = live_spins or []
     all_stats = numbers_stats(conn)
-    w_stats = numbers_stats(conn, limit=window)
+    w_stats = numbers_stats(conn, limit=window, live_spins=live_spins)
 
     z_all = {d["number"]: d["z"] for d in all_stats["numbers"]}
     z_w = {d["number"]: d["z"] for d in w_stats["numbers"]}
@@ -281,6 +303,7 @@ def audit(conn: sqlite3.Connection, window: int = 500) -> dict:
 
     return {
         "window": window,
+        "live": len(live_spins),
         "all_time": {
             "total": all_stats["total"],
             "top": sorted(top_all),

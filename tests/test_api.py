@@ -175,6 +175,62 @@ def test_audit_shape():
     assert max(abs(x["delta"]) for x in a["drift"]) < 2.0
 
 
+def test_audit_live_merge():
+    # 2 uncommitted journald spins must be folded into the last-500 window:
+    # window total stays 500 (498 DB + 2 live), hit counts shift accordingly.
+    from backend.db import connect
+    from backend.stats import audit, numbers_stats
+
+    conn = connect()
+    try:
+        live = [
+            {"number": 12, "time": "23:59:58"},
+            {"number": 7, "time": "00:00:42"},
+        ]
+        a = audit(conn, window=500, live_spins=live)
+        assert a["live"] == 2
+        assert a["last_window"]["total"] == 500
+
+        base = {x["number"]: x["hits"]
+                for x in numbers_stats(conn, limit=500)["numbers"]}
+        merged = {x["number"]: x["hits"]
+                  for x in numbers_stats(conn, limit=500, live_spins=live)["numbers"]}
+        assert merged[12] == base[12] + 1
+        assert merged[7] == base[7] + 1
+        # one number NOT hit in the live window keeps its DB count
+        other = next(n for n in range(37) if n not in (7, 12))
+        assert merged[other] == base[other]
+        # expected/z use the true window size (500), not DB-only 498
+        w = {x["number"]: x for x in
+             numbers_stats(conn, limit=500, live_spins=live)["numbers"]}
+        assert w[12]["expected"] == round(500 * (1 / 37), 1)
+        # no live spins == DB-only behaviour
+        assert audit(conn, window=500) == audit(conn, window=500, live_spins=[])
+    finally:
+        conn.close()
+
+
+def test_session_marker_cut():
+    # Pre-restart journald spin lines share #N ranges with the live session
+    # (counter = len(spins) at resume). _after_last_session must drop them.
+    from backend.app import _after_last_session
+
+    lines = (
+        "  [14:57:06] #17828: 10 Black\n"
+        "  [14:59:19] #17831: 12 Red\n"
+        "[2026-08-04T15:09:52.281055] ===== Starting Roulette 2 session =====\n"
+        "  [15:11:15] #17818: 20 Black\n"
+        "  [15:12:36] #17820: 34 Red\n"
+    )
+    tail = _after_last_session(lines)
+    assert "#17828" not in tail and "#17831" not in tail  # stale pre-restart
+    assert "#17818" in tail and "#17820" in tail            # live session kept
+    assert "Starting Roulette 2 session" not in tail        # marker itself dropped
+    # no marker present -> unchanged (journal rotated / fresh boot)
+    single = "  [15:11:15] #17818: 20 Black\n"
+    assert _after_last_session(single) == single
+
+
 def test_frontend_served():
     r = client.get("/")
     assert r.status_code == 200

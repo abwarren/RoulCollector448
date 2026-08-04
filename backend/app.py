@@ -1,13 +1,10 @@
 """RoulCollector448 — read-only API + static dashboard, port 4480."""
 
-import asyncio
 import datetime
 import os
 import re
 import subprocess
 import time
-
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
@@ -15,11 +12,16 @@ from fastapi.staticfiles import StaticFiles
 from . import db, stats
 from .wheel import nn_cluster
 
-AUDIT_INTERVAL = 3600  # hourly audit (per requirements)
-AUDIT_WINDOW = 500    # audit compares against the last 500 spins
+AUDIT_INTERVAL = 3600  # audit panel refresh cadence (frontend re-fetches hourly)
+AUDIT_WINDOW = 500     # audit compares against the last 500 spins
 COLLECTOR_SERVICE = "roulette-collector2.service"
-
-_audit_store = {"data": None, "generated_at": None, "error": None}
+# Journal tail lines fetched per poll. Must comfortably cover LIVE_SPINS_KEEP
+# spin lines despite ~1.4 Status: noise lines per spin (~100 lines for 40
+# spins), AND leave enough history for the session-marker cut to find the
+# last "Starting Roulette 2 session" line (stale pre-restart lines live
+# further back in the journal).
+JOURNAL_TAIL = 300
+SESSION_MARKER = "===== Starting Roulette 2 session ====="
 
 FRONTEND_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend"
@@ -38,6 +40,25 @@ _SPIN_LINE_RE = re.compile(
 LIVE_SPINS_KEEP = 40
 
 
+def _after_last_session(lines: str) -> str:
+    """Drop everything up to and including the collector's last session-start
+    marker.
+
+    The journald counter (#N) is `len(spins)` at print time, and `spins`
+    resumes from the JSON state file — which resets to the DB count at every
+    restart. A restart therefore leaves PREVIOUS session's spin lines in the
+    journal whose #N counters overlap the current session's (e.g. pre-restart
+    #17828..17831 + post-restart #17818..), and the plain
+    `db_total < n <= db_total + KEEP` guard cannot tell them apart. Counting
+    both double-fills the live window with stale spins. Only lines after the
+    LAST session marker belong to the live session.
+    """
+    idx = lines.rfind(SESSION_MARKER)
+    if idx == -1:
+        return lines
+    return lines[idx + len(SESSION_MARKER):]
+
+
 def _journal_last():
     """Last journald lines for the collector: timestamp age + last spin."""
     now = time.time()
@@ -45,8 +66,8 @@ def _journal_last():
         return _journal_cache
     try:
         out = subprocess.run(
-            ["journalctl", "--user", "-u", COLLECTOR_SERVICE, "-n", "60",
-             "--no-pager", "-o", "short-iso"],
+            ["journalctl", "--user", "-u", COLLECTOR_SERVICE, "-n",
+             str(JOURNAL_TAIL), "--no-pager", "-o", "short-iso"],
             capture_output=True, text=True, timeout=5,
             env={**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"},
         ).stdout.strip()
@@ -70,7 +91,7 @@ def _journal_last():
 def _parse_live_spins(lines: str):
     """ALL spin lines in the journal tail, newest first (for realtime grid)."""
     spins = []
-    for line in reversed(lines.splitlines()):
+    for line in reversed(_after_last_session(lines).splitlines()):
         m = _SPIN_LINE_RE.search(line)
         if m:
             spins.append(
@@ -89,17 +110,23 @@ def _parse_live_spins(lines: str):
 def _live_spins_uncommitted(db_total: int):
     """Journald spins newer than the DB, chronological (not yet committed).
 
-    The collector's journald counter equals its dataset position, so any
-    spin with n > db_total is not yet in the DB (commits are 25-spin
-    batches). Guard on n <= db_total + LIVE_SPINS_KEEP so a hypothetical
-    counter reset (n restarts at 1) degrades to DB-only instead of
-    double-counting the whole journal.
+    The collector's journald counter equals its dataset position *within the
+    current session* (it resumes from the JSON state at restart, which is in
+    sync with the DB at the last save), so any spin with n > db_total is not
+    yet in the DB (commits are 25-spin batches). Two guards:
+
+    1. Only lines AFTER the last session-start marker count — a restart
+       resets the counter base, so pre-restart lines with overlapping #N
+       would otherwise be counted as live spins (stale double-fill).
+    2. n <= db_total + LIVE_SPINS_KEEP, so a hypothetical counter reset
+       (n restarts at 1) degrades to DB-only instead of double-counting
+       the whole journal.
     """
     jl = _journal_last()
     if not jl["ok"]:
         return []
     out = []
-    for line in jl["line"].splitlines():
+    for line in _after_last_session(jl["line"]).splitlines():
         m = _SPIN_LINE_RE.search(line)
         if m and db_total < int(m.group(2)) <= db_total + LIVE_SPINS_KEEP:
             out.append({"number": int(m.group(3)), "time": m.group(1)})
@@ -109,38 +136,25 @@ def _live_spins_uncommitted(db_total: int):
 def _compute_audit():
     conn = db.connect()
     try:
-        return stats.audit(conn, window=AUDIT_WINDOW)
+        total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
+        live = _live_spins_uncommitted(total)
+        return stats.audit(conn, window=AUDIT_WINDOW, live_spins=live)
     finally:
         conn.close()
 
 
-async def _audit_loop():
-    while True:
-        try:
-            data = await asyncio.to_thread(_compute_audit)
-            _audit_store["data"] = data
-            _audit_store["generated_at"] = datetime.datetime.now().isoformat()
-            _audit_store["error"] = None
-        except Exception as exc:  # keep the loop alive on transient errors
-            _audit_store["error"] = str(exc)
-        await asyncio.sleep(AUDIT_INTERVAL)
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    task = asyncio.create_task(_audit_loop())
-    yield
-    task.cancel()
-
-
-app = FastAPI(title="RoulCollector448", lifespan=lifespan)
+app = FastAPI(title="RoulCollector448")
 
 
 @app.middleware("http")
 async def no_cache_static(request, call_next):
-    """Never cache frontend files — any reload picks up edits immediately."""
+    """Never cache frontend files or API responses — any reload picks up
+    edits immediately, and the live feed never serves stale JSON."""
     resp = await call_next(request)
-    if request.url.path in ("/", "/index.html", "/app.js", "/style.css"):
+    if (
+        request.url.path in ("/", "/index.html", "/app.js", "/style.css")
+        or request.url.path.startswith("/api/")
+    ):
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
@@ -278,16 +292,19 @@ def stats_rolling(window: int = Query(500, ge=50, le=10000)):
 
 @app.get("/api/audit")
 def get_audit(fresh: bool = Query(False)):
-    """Return the hourly audit. Computes on demand if none is stored yet."""
-    if fresh or _audit_store["data"] is None:
-        _audit_store["data"] = _compute_audit()
-        _audit_store["generated_at"] = datetime.datetime.now().isoformat()
+    """Audit vs the true last 500 spins (DB + uncommitted journald live merge).
+
+    Computed on demand so the panel is never stale — there is no hourly
+    snapshot to lag behind (the frontend re-fetches hourly itself).
+    `fresh` kept for API compatibility; every request is fresh.
+    """
+    data = _compute_audit()
     return {
-        "generated_at": _audit_store["generated_at"],
+        "generated_at": datetime.datetime.now().isoformat(),
         "interval_seconds": AUDIT_INTERVAL,
         "window": AUDIT_WINDOW,
-        "error": _audit_store["error"],
-        "audit": _audit_store["data"],
+        "error": None,
+        "audit": data,
     }
 
 
