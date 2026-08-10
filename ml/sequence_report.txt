@@ -1,0 +1,4 @@
+spins=22515 train=15754 test=6753 seq=8 hidden=48 epochs=12
+GRU   top1 0.0265 top3 0.0780 top5 0.1309 logloss 3.6284
+fair  top1 0.0270 top3 0.0811 top5 0.1351 logloss 3.6109
+M1 0.0272 M2 0.0252 majority 0.0287

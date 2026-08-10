@@ -143,8 +143,9 @@ def test_stats_streaks_shape():
     assert d["repeat_counts"]["doubles"] == 0
 
 
-def test_stats_rolling_500():
+def test_stats_rolling():
     d = client.get("/api/stats/rolling?window=500").json()
+    assert d["window"] == 500
     assert d["total"] == 500
     assert len(d["numbers"]) == 37
     assert sum(x["hits"] for x in d["numbers"]) == 500
@@ -156,6 +157,39 @@ def test_stats_rolling_500():
     seq = [((610 + i) % 37) for i in range(500)]
     exp = sum(1 for a, b in zip(seq, seq[1:]) if b in nn_cluster(a)) / 499
     assert abs(d["neighbor_rate"] - exp) < 1e-4  # API rounds to 4dp
+
+
+def test_transitions_fixture_diagonal():
+    # Fixture = 30 cycles of 0..36, so number f is ALWAYS followed by f+1.
+    # Every cell except the (f -> f+1 mod 37) diagonal is zero.
+    d = client.get("/api/transitions").json()
+    assert d["total"] == 1110
+    assert d["pairs"] == 1109
+    assert d["matrix"][0][1] == 30
+    assert d["matrix"][36][0] == 29
+    assert sum(sum(row) for row in d["matrix"]) == 1109
+    # the dominant ordered pair must lead the z-sorted top pairs
+    assert d["top_pairs"][0]["from"] == 0 and d["top_pairs"][0]["to"] == 1
+    assert d["top_pairs"][0]["count"] == 30
+    assert len(d["top_pairs"]) == 15
+    # Nn-cluster follow: #0 is never followed by a cluster member in the
+    # fixture (always by 1), so hits == 0 with n == 30
+    nn0 = next(x for x in d["nn_follow"] if x["number"] == 0)
+    assert nn0["n"] == 30 and nn0["hits"] == 0
+    assert len(d["nn_follow"]) == 37
+    # the fixture's numeric cycling never lands in any Nn cluster, so the
+    # overall follow rate is far below fair — count-scale z must reflect that
+    assert d["nn_follow_z"] < -5
+    assert len(d["distances"]) == 19
+    assert sum(r["count"] for r in d["distances"]) == 1109
+    assert d["color_matrix"]["labels"] == ["Red", "Black", "Green"]
+
+
+def test_transitions_limit():
+    d = client.get("/api/transitions?limit=100").json()
+    assert d["total"] == 100
+    assert d["pairs"] == 99
+    assert sum(sum(row) for row in d["matrix"]) == 99
 
 
 def test_stats_rolling_validation():

@@ -2,9 +2,11 @@
 
 import sqlite3
 
-from .wheel import color_of, nn_cluster
+from .wheel import WHEEL, color_of, nn_cluster
 
 P = 1 / 37  # fair per-number probability on a European wheel
+
+_WHEEL_POS = {n: i for i, n in enumerate(WHEEL)}
 
 
 def z_score(hits: int, n: int) -> float:
@@ -317,4 +319,128 @@ def audit(conn: sqlite3.Connection, window: int = 500, live_spins=None) -> dict:
         "drift": drift[:10],
         "rotated_hot": sorted(top_w - top_all),
         "rotated_cold": sorted(top_all - top_w),
+    }
+
+
+def transitions(conn: sqlite3.Connection, limit=None, live_spins=None) -> dict:
+    """37x37 next-spin transition matrix + neighbor-sequence diagnostics.
+
+    - `matrix[f][t]` = count of number f immediately followed by number t.
+    - Per-cell z vs uniform independence (p = 1/1369 per ordered pair).
+    - `top_pairs` = highest-z ordered pairs (the "neighbor-to-neighbor"
+      sequences the user watches).
+    - `nn_follow` = per-number rate that the NEXT spin lands in Nn (5-cluster).
+    - `distances` = circular wheel-gap distribution between consecutive spins
+      (0 = same pocket, 1..18 = gap size). Under a fair wheel, gap 0 has
+      p = 1/37 and every other gap p = 2/37 — a non-flat shape here is the
+      cleanest single-number read on physical/mechanical bias.
+
+    `live_spins` (uncommitted journald spins, chronological) merge as
+    virtual trailing spins, same live-merge as sleepers/audit.
+    """
+    live_spins = live_spins or []
+    rows = conn.execute(
+        "SELECT number FROM roulette_spins ORDER BY id ASC"
+    ).fetchall()
+    nums = [r["number"] for r in rows]
+    if live_spins:
+        nums += [s["number"] for s in live_spins]
+    if limit:
+        nums = nums[-limit:]
+    pairs = len(nums) - 1
+    if pairs <= 0:
+        return {"total": len(nums), "pairs": 0}
+
+    matrix = [[0] * 37 for _ in range(37)]
+    dist_counts = [0] * 19
+    color_matrix = [[0] * 3 for _ in range(3)]
+    col_idx = {"Red": 0, "Black": 1, "Green": 2}
+    for a, b in zip(nums, nums[1:]):
+        matrix[a][b] += 1
+        d = abs(_WHEEL_POS[a] - _WHEEL_POS[b])
+        dist_counts[min(d, 37 - d)] += 1
+        color_matrix[col_idx[color_of(a)]][col_idx[color_of(b)]] += 1
+
+    # per-cell expectation under uniform independence
+    p_cell = 1 / 1369
+    exp_cell = pairs * p_cell
+    sd_cell = (pairs * p_cell * (1 - p_cell)) ** 0.5
+    cells = []
+    for f in range(37):
+        for t in range(37):
+            c = matrix[f][t]
+            z = (c - exp_cell) / sd_cell if sd_cell else 0.0
+            cells.append(
+                {
+                    "from": f,
+                    "to": t,
+                    "count": c,
+                    "expected": round(exp_cell, 1),
+                    "ratio": round(c / exp_cell, 2) if exp_cell else 0.0,
+                    "z": round(z, 2),
+                }
+            )
+    cells.sort(key=lambda d: -d["z"])
+    top_pairs = cells[:15]
+    bottom_pairs = [c for c in cells if c["count"] > 0][-5:]
+
+    # Nn-cluster follow rate per number
+    nn_rows = []
+    for f in range(37):
+        row = matrix[f]
+        row_sum = sum(row)
+        cluster = nn_cluster(f)
+        hits = sum(row[t] for t in cluster)
+        exp_rate = 5 / 37
+        exp_hits = row_sum * exp_rate
+        sd = (row_sum * exp_rate * (1 - exp_rate)) ** 0.5
+        nn_rows.append(
+            {
+                "number": f,
+                "color": color_of(f),
+                "n": row_sum,
+                "hits": hits,
+                "expected": round(exp_hits, 1),
+                "rate": round(hits / row_sum, 4) if row_sum else 0.0,
+                "z": round((hits - exp_hits) / sd, 2) if sd else 0.0,
+            }
+        )
+    nn_rows.sort(key=lambda d: -d["z"])
+    nn_total_hits = sum(r["hits"] for r in nn_rows)
+    nn_rate = nn_total_hits / pairs
+    exp_nn_rate = 5 / 37
+    # count-scale sd: z = (observed hits - expected hits) / sd
+    sd_nn = (pairs * exp_nn_rate * (1 - exp_nn_rate)) ** 0.5
+    nn_z = (nn_total_hits - pairs * exp_nn_rate) / sd_nn if sd_nn else 0.0
+
+    # wheel-gap distribution
+    dist_rows = []
+    for d in range(19):
+        exp_d = pairs * (1 / 37 if d == 0 else 2 / 37)
+        sd_d = (pairs * (exp_d / pairs) * (1 - exp_d / pairs)) ** 0.5
+        dist_rows.append(
+            {
+                "gap": d,
+                "count": dist_counts[d],
+                "expected": round(exp_d, 1),
+                "z": round((dist_counts[d] - exp_d) / sd_d, 2) if sd_d else 0.0,
+            }
+        )
+
+    return {
+        "total": len(nums),
+        "pairs": pairs,
+        "expected_per_pair": round(exp_cell, 1),
+        "matrix": matrix,
+        "top_pairs": top_pairs,
+        "bottom_pairs": bottom_pairs,
+        "nn_follow": nn_rows,
+        "nn_follow_rate": round(nn_rate, 4),
+        "nn_follow_expected": exp_nn_rate,
+        "nn_follow_z": round(nn_z, 2) if sd_nn else 0.0,
+        "distances": dist_rows,
+        "color_matrix": {
+            "labels": ["Red", "Black", "Green"],
+            "matrix": color_matrix,
+        },
     }

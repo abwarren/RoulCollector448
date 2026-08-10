@@ -36,6 +36,30 @@
 </button>
 
 <main>
+  <section id="transPanel" class="panel">
+    <h3>Transitions <span class="sub" id="transMeta"></span></h3>
+    <div class="trans-grid">
+      <div class="chart-card">
+        <div class="chart-title">37×37 next-spin matrix · from → to · z vs fair</div>
+        <svg id="transHeatmap" class="chart heatmap"></svg>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Wheel-gap distribution (0 = repeat, 18 = opposite) · z vs fair</div>
+        <svg id="distChart" class="chart"></svg>
+      </div>
+    </div>
+    <div class="trans-grid">
+      <div class="chart-card">
+        <div class="chart-title">Top pairs by z (neighbor-to-neighbor)</div>
+        <div class="table-wrap trans-scroll"><table id="topPairs"></table></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Nn follow rate by number (fair 13.5%)</div>
+        <div class="table-wrap trans-scroll"><table id="nnFollow"></table></div>
+      </div>
+    </div>
+  </section>
+
   <section id="auditPanel" class="panel">
     <h3>Hourly audit <span class="sub" id="auditMeta"></span></h3>
     <div id="auditBody" class="audit-body"></div>

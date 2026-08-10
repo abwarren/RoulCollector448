@@ -254,6 +254,9 @@ async function tickHealth() {
   // cheap COUNT + grouped query on the read-only DB, and the live-merge
   // keeps it correct even between 25-spin DB batch commits.
   loadSleepers().catch(() => {});
+  // Transitions matrix tracks the wheel in realtime too (one new pair per
+  // spin, live-merged from journald in the API).
+  loadTransitions().catch(() => {});
   // adaptive cadence: no new number yet -> hyperpoll (2s); new spin landed -> 44s
   scheduleNext(newSpin ? POLL_MS : HYPER_POLL_MS);
 }
@@ -389,6 +392,107 @@ async function loadRolling() {
 
 $("windowSel").addEventListener("change", loadRolling);
 
+/* ---------------- transitions (matrix / pairs / gaps) ---------------- */
+
+const TRANS_CAP = 3.5; // z clamp for heatmap color scale
+
+function titleEl(text) {
+  const t = svgEl("title");
+  t.textContent = text;
+  return t;
+}
+
+function cellZ(count, exp, pairs) {
+  const p = 1 / 1369; // fair per-cell probability (37×37 ordered pairs)
+  const sd = Math.sqrt(pairs * p * (1 - p));
+  return sd ? (count - exp) / sd : 0;
+}
+
+function zColor(z) {
+  const t = Math.max(-1, Math.min(1, z / TRANS_CAP));
+  if (Math.abs(t) < 0.02) return "#eeeeee";
+  if (t > 0) return `rgba(211,47,47,${(0.12 + 0.88 * t).toFixed(3)})`;   // hot red
+  return `rgba(25,118,210,${(0.12 + 0.88 * -t).toFixed(3)})`;            // cold blue
+}
+
+function heatmap(el, matrix, d) {
+  const N = 37, CELL = 9, PAD = 16;
+  const W = PAD + N * CELL + 2, H = PAD + N * CELL + 2;
+  el.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  el.setAttribute("height", H);
+  el.replaceChildren();
+  for (let f = 0; f < N; f++) {
+    for (let t = 0; t < N; t++) {
+      const c = matrix[f][t];
+      const z = cellZ(c, d.expected_per_pair, d.pairs);
+      const r = svgEl("rect", {
+        x: PAD + t * CELL, y: PAD + f * CELL,
+        width: CELL, height: CELL,
+        fill: zColor(z),
+      });
+      r.appendChild(titleEl(`${f}→${t}  n=${c}  exp ${d.expected_per_pair}  z=${z > 0 ? "+" : ""}${z.toFixed(2)}`));
+      el.appendChild(r);
+    }
+  }
+  for (let n = 0; n < N; n += 5) {
+    const xl = svgEl("text", { x: PAD + n * CELL + CELL / 2, y: PAD - 3, "font-size": 7, fill: "#888", "text-anchor": "middle" });
+    xl.textContent = n;
+    el.appendChild(xl);
+    const yl = svgEl("text", { x: PAD - 3, y: PAD + n * CELL + CELL / 2, "font-size": 7, fill: "#888", "text-anchor": "end" });
+    yl.textContent = n;
+    el.appendChild(yl);
+  }
+}
+
+function distChart(el, rows) {
+  const W = 900, H = 130, PAD = 6;
+  el.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  el.replaceChildren();
+  const mid = H / 2;
+  const max = Math.max(...rows.map((r) => Math.abs(r.z)), 1);
+  const bw = W / rows.length;
+  rows.forEach((r, i) => {
+    const h = (Math.abs(r.z) / max) * (H / 2 - 8);
+    const y = r.z >= 0 ? mid - h : mid;
+    const bar = svgEl("rect", {
+      x: i * bw + 1, y, width: Math.max(1, bw - 2), height: Math.max(1, h),
+      fill: r.z >= 0 ? "#d32f2f" : "#1976d2",
+    });
+    bar.appendChild(titleEl(`gap ${r.gap} · n=${r.count} (exp ${r.expected}) · z=${r.z > 0 ? "+" : ""}${r.z}`));
+    el.appendChild(bar);
+    if (i % 3 === 0) {
+      const lbl = svgEl("text", { x: i * bw + bw / 2, y: H - 2, "font-size": 8, fill: "#666", "text-anchor": "middle" });
+      lbl.textContent = r.gap;
+      el.appendChild(lbl);
+    }
+  });
+  el.appendChild(svgEl("line", { x1: PAD, y1: mid, x2: W - PAD, y2: mid, stroke: "#ccc", "stroke-width": 1 }));
+}
+
+async function loadTransitions() {
+  const d = await api("/api/transitions");
+  $("transMeta").textContent =
+    `${d.pairs.toLocaleString()} pairs · exp/pair ${d.expected_per_pair}` +
+    ` · Nn follow ${(d.nn_follow_rate * 100).toFixed(1)}% vs ${(d.nn_follow_expected * 100).toFixed(1)}%` +
+    ` (z ${d.nn_follow_z > 0 ? "+" : ""}${d.nn_follow_z})`;
+  heatmap($("transHeatmap"), d.matrix, d);
+  distChart($("distChart"), d.distances);
+  $("topPairs").innerHTML =
+    `<thead><tr><th>from→to</th><th>n</th><th>exp</th><th>z</th></tr></thead><tbody>` +
+    d.top_pairs.map((p) =>
+      `<tr><td><span class="sw ${cellClass(p.from)}"></span>${p.from}→${p.to}</td>` +
+      `<td>${p.count}</td><td>${p.expected}</td>` +
+      `<td style="color:${p.z >= 2 ? "#d32f2f" : p.z <= -2 ? "#1976d2" : "#888"}">${p.z > 0 ? "+" : ""}${p.z}</td></tr>`
+    ).join("") + "</tbody>";
+  $("nnFollow").innerHTML =
+    `<thead><tr><th>#</th><th>n</th><th>hits</th><th>rate</th><th>z</th></tr></thead><tbody>` +
+    d.nn_follow.map((x) =>
+      `<tr><td><span class="sw ${cellClass(x.number)}"></span>${x.number}</td>` +
+      `<td>${x.n}</td><td>${x.hits}</td><td>${(x.rate * 100).toFixed(1)}%</td>` +
+      `<td style="color:${x.z >= 2 ? "#d32f2f" : x.z <= -2 ? "#1976d2" : "#888"}">${x.z > 0 ? "+" : ""}${x.z}</td></tr>`
+    ).join("") + "</tbody>";
+}
+
 /* ---------------- audit ---------------- */
 
 async function loadAudit() {
@@ -421,6 +525,7 @@ async function boot() {
   loadSleepers();
   loadStreaks();
   loadRolling();
+  loadTransitions();
   loadAudit();
   tickHealth();                       // starts adaptive poll loop (2s/44s)
   setInterval(loadAudit, 3600 * 1000); // keep the audit panel fresh hourly

@@ -308,4 +308,22 @@ def get_audit(fresh: bool = Query(False)):
     }
 
 
+@app.get("/api/transitions")
+def get_transitions(limit: int | None = Query(None, ge=100, le=100000)):
+    """37x37 next-spin transition matrix + neighbor-sequence diagnostics.
+
+    The full matrix plus the highest-z ordered pairs ("neighbor-to-neighbor"
+    sequences), per-number Nn-follow rates, and the wheel-gap distribution.
+    Live-merges uncommitted journald spins so the matrix tracks the wheel in
+    realtime, not the 25-spin DB batch cadence.
+    """
+    conn = db.connect()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
+        live = _live_spins_uncommitted(total)
+        return stats.transitions(conn, limit=limit, live_spins=live)
+    finally:
+        conn.close()
+
+
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")

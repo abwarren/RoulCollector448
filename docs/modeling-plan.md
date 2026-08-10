@@ -82,6 +82,20 @@ sliding windows of last 10-25 spins. Trains in seconds at 22K samples.
 Same walk-forward split and metrics. Include only if Phase B shows any
 test-set lift — the data, not the GPU, is the constraint.
 
+**Phase C status (2026-08-10): DONE — result: no learnable sequence.**
+`scripts/sequence_model.py` — numpy-only GRU (torch's CPU wheel is a CDN
+download, user denies CDN; a GRU is ~30 lines of manual BPTT). Window of
+last 8 spins → next number, hidden 48, Adam, walk-forward 70/30 on 22.5K
+spins: test top1 2.82% / top3 8.16% / top5 13.65% vs fair 2.70 / 8.11 /
+13.51, logloss 3.627 vs 3.611. Order-2 Markov (the pure pair-state
+learner) scored 2.52% — BELOW uniform. The neighbor-pair sequence
+hypothesis is directly tested and negative; the model learns nothing
+(train CE declines 3.49→3.22, i.e. toward uniform, never below).
+PITFALLS: (1) `dout = prob - onehot(last INPUT)` instead of
+`onehot(target)` breaks BPTT and drives train CE negative — the training
+loop asserts loss >= -1e-6 to catch it; (2) stable CE via
+logsumexp(minus row-max) is mandatory in float32.
+
 ## Phase D — Dashboard integration (optional, after A-C validated)
 
 New API endpoints: `/api/transitions` (37x37 matrix or top pairs),
@@ -89,6 +103,23 @@ New API endpoints: `/api/transitions` (37x37 matrix or top pairs),
 Frontend: hand-rolled SVG matrix heatmap + a "model vs uniform" panel.
 Follows existing patterns: read-only, no-cache on /api, positional-rank
 math, journald live-merge if gaps matter.
+
+**Phase D status (2026-08-10): DONE — /api/transitions + Transitions panel.**
+`/api/transitions[?limit=N]` returns the 37x37 next-spin count matrix,
+top/bottom pairs by z (per-cell exp = pairs/1369), per-number Nn-follow
+rate + overall z, the wheel-gap distribution (19 gaps, 0=repeat,
+1..18=opposite; fair p = 1/37 for gap 0, 2/37 otherwise), and the 3x3
+color matrix. Live-merges uncommitted journald spins (same pattern as
+sleepers/audit). Frontend: Transitions panel above the stats grid —
+SVG heatmap (37x37 rects, red/blue diverging on z clamped to ±3.5, tooltip
+per cell), wheel-gap z bar chart (midline anchor, sign-colored), top-pairs
+and Nn-follow tables. Refreshed every 5s tick. Live results (22.5K
+spins): top pair 33→16 z=+4.33 (n=34 vs exp 16.4 — expected-max territory
+across 1369 pairs), Nn follow 13.98% vs 13.51% (z=+2.04), gap-1 z=+2.27.
+All within multiple-testing noise; the panel exists so the user can watch
+the matrix grow and see any REAL deviation the moment it appears.
+Fixture tests: `test_transitions_fixture_diagonal` +
+`test_transitions_limit` (21 tests total, all green).
 
 ## Evaluation rules (all phases)
 
