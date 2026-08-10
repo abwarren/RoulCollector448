@@ -1,0 +1,5 @@
+spins=22419 train=15692 test=6726
+baseline majority 0.0271 | markov 0.0272 | uniform 0.0270
+LGB number acc 0.0262 top3 0.0867 top5 0.1350
+LGB color acc 0.5003 (fair 0.4865)
+Nn follow 0.1387 fair 0.1351

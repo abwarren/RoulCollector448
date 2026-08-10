@@ -47,7 +47,6 @@ the limping state skewing recent windows), not to find an edge.
 
 `scripts/feature_model.py` — LightGBM multiclass (37) and binary targets
 (color/dozen/parity) on engineered features:
-
 - Lags: prev 1-3 numbers (as 37-dim one-hot), colors, dozens, wheel indices.
 - Windows 5/10/25/50: per-number counts + Z-scores, color/dozen balance,
   entropy, longest streak, sleeper gaps, hot-neighbor counts (Nn cluster
@@ -61,6 +60,19 @@ Deps: `pip install lightgbm` into the repo `.venv` (PyPI, not CDN).
 Evaluation: same 70/30 chronological split, top-1/3/5 + log-loss, feature
 importance (gain) + SHAP on the top features. Only a test-set win over
 uniform is signal; training-set gains are overfit by definition.
+
+**Phase B status (2026-08-10): DONE — result: fair wheel, no signal.**
+`scripts/feature_model.py` (37-class next-number) + `scripts/predict_next.py`
+(live top-5), venv `.venv-ml` (numpy/pandas/lightgbm — kept separate from the
+dashboard `.venv`), models saved to `ml/`. Walk-forward 70/30 on 22.4K spins:
+number acc 2.62% vs uniform 2.70% (best_iter=1 → learned nothing), color
+50.0% vs 48.65% fair, Markov order-1 2.72%, Nn follow 13.87% vs 13.51%.
+First build had a label-leaking markov feature (33.9% acc — impossible);
+fixed to train-frozen argmax/conf, sanity rule: ≥5% next-number acc = leakage.
+Deviations from plan: color as 3-class instead of binary targets, no
+time-of-day features / exponential decay / SHAP yet — add only if a future
+signal justifies it. SHAP at 22K rows with all features near-zero gain is
+noise; the gain importances already answer the exploration question.
 
 ## Phase C — Sequence model (B250/P100 rig, not this box)
 
