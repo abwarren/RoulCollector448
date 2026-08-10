@@ -12,6 +12,7 @@
   <div class="live"><span id="liveDot" class="dot"></span><span id="liveLabel">LIVE</span></div>
   <div class="meta">
     last: <b id="lastSpin">—</b> · <span id="lastAge">—</span> · <span id="totalSpins">—</span> spins
+    <span id="gapBadge" class="gap-badge hidden" title=""></span>
   </div>
   <div class="controls">
     <div class="mode-toggle">
@@ -21,19 +22,6 @@
     </div>
   </div>
 </header>
-
-<div id="gridWrap">
-  <div id="grid"></div>
-</div>
-
-<div id="hitsPanel" class="panel" hidden>
-  <h3>Hits for <span id="hitsNum"></span> <span class="sub" id="hitsMeta"></span></h3>
-  <div id="hitsList" class="hits-list"></div>
-</div>
-
-<button id="showMore" class="show-more">
-  Show more (older) — <span id="shownCount">0</span> loaded of <span id="totalCount">—</span>
-</button>
 
 <main>
   <section id="transPanel" class="panel">
@@ -96,6 +84,19 @@
     </div>
   </div>
 </main>
+
+<div id="gridWrap">
+  <div id="grid"></div>
+</div>
+
+<div id="hitsPanel" class="panel" hidden>
+  <h3>Hits for <span id="hitsNum"></span> <span class="sub" id="hitsMeta"></span></h3>
+  <div id="hitsList" class="hits-list"></div>
+</div>
+
+<button id="showMore" class="show-more">
+  Show more (older) — <span id="shownCount">0</span> loaded of <span id="totalCount">—</span>
+</button>
 
 <footer>
   <span id="footerNote">RoulCollector448 · API :4480 · data: /home/wa/roulette2_spins.db</span>

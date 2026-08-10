@@ -19,6 +19,7 @@ const SPINS_PER_ROW = 25; // 25 per row (whole row fits one page)
 const BATCH = 2000;       // per "show more" click
 const POLL_MS = 5000;      // poll every 5s — realtime
 const HYPER_POLL_MS = 5000; // same cadence; no need for adaptive
+const GAP_S = 120;         // time break threshold (s) — >2min = gap note in grid
 
 const state = {
   spins: [],      // chronological, oldest first (all loaded)
@@ -54,6 +55,74 @@ function timeMatch(a, b) {
   return Math.abs(p(a) - p(b)) <= 2;
 }
 
+/* ---- time-break detection (gap markers) ---- */
+
+// Spin timestamp → epoch seconds. DB rows carry ISO captured_at; live
+// journald spins carry "HH:MM:SS" (same day). Null if unparseable.
+function spinTs(s) {
+  const t = (s.captured_at || s.time || "").trim();
+  if (!t) return null;
+  const iso = t.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+  if (iso) {
+    return Date.UTC(+iso[1].slice(0, 4), +iso[1].slice(5, 7) - 1, +iso[1].slice(8, 10),
+                   +iso[2], +iso[3], +iso[4]) / 1000;
+  }
+  const hm = t.match(/^(\d{2}):(\d{2}):(\d{2})$/);
+  if (hm) return (+hm[1]) * 3600 + (+hm[2]) * 60 + (+hm[3]);
+  return null;
+}
+
+// Normalize a chronological list to absolute epoch timestamps so ISO
+// (absolute) and HH:MM:SS (seconds-of-day) deltas are comparable. Live spins
+// are always same-day as the DB tail, so anchor them to the newest ISO date.
+function normalizeChrono(chrono) {
+  let anchor = null;
+  for (const s of chrono) {
+    const iso = (s.captured_at || "").match(/^(\d{4}-\d{2}-\d{2})T/);
+    if (iso) {
+      const [y, m, d] = iso[1].split("-").map(Number);
+      anchor = Date.UTC(y, m - 1, d) / 1000;
+      break;
+    }
+  }
+  return chrono.map((s) => {
+    const raw = spinTs(s);
+    if (raw === null) return { s, ts: null };
+    if ((s.captured_at || "").includes("T")) return { s, ts: raw };       // ISO → absolute
+    return { s, ts: anchor !== null ? anchor + raw : raw };               // HH:MM:SS → anchored
+  });
+}
+
+function fmtDur(sec) {
+  if (sec >= 3600) {
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${Math.round(sec / 60)}m`;
+}
+
+// Find breaks in a normalized chronological list. Returns array of
+// {i, delta} where i is the index of the NEWER spin (chrono[i] follows a
+// gap after chrono[i-1]).
+function findBreaks(norm) {
+  const breaks = [];
+  let prev = null;
+  for (let i = 0; i < norm.length; i++) {
+    const ts = norm[i].ts;
+    if (ts !== null && prev !== null) {
+      const delta = ts - prev;
+      if (delta > GAP_S) breaks.push({ i, delta });
+    }
+    if (ts !== null) prev = ts;
+  }
+  return breaks;
+}
+
+function fmtClock(ts) {
+  const d = new Date(ts * 1000);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}:${String(d.getUTCSeconds()).padStart(2, "0")}`;
+}
+
 function renderGrid() {
   const grid = $("grid");
   const hl = highlightSet();
@@ -72,21 +141,44 @@ function renderGrid() {
       );
     });
   if (liveOverlay.length) newest = liveOverlay.concat(newest);
-  for (let i = 0; i < newest.length; i += SPINS_PER_ROW) {
-    const row = document.createElement("div");
-    row.className = "row50";
-    for (const s of newest.slice(i, i + SPINS_PER_ROW)) {
-      const b = document.createElement("button");
-      b.className = "cell " + cellClass(s.number);
-      b.textContent = s.number;
-      b.dataset.n = s.number;
-      if (i === 0 && s === newest[0]) b.classList.add("latest"); // newest spin → pink arrow
-      if (hl && hl.hit.has(s.number)) b.classList.add("hl-hit");
-      if (hl && hl.nb.has(s.number)) b.classList.add("hl-nb");
-      row.appendChild(b);
+  // chronological order (for gap detection) = reversed newest
+  const chrono = newest.slice().reverse();
+  const norm = normalizeChrono(chrono);
+  const breaks = findBreaks(norm);
+  // break marker sits right before the NEWER cell in newest-first order:
+  // chrono[i] (newer) is newest[chrono.length - 1 - i]
+  const breakIdx = new Set(breaks.map((b) => chrono.length - 1 - b.i));
+  let row = null;
+  let started = false;
+  let rowCount = 0;
+  const flushRow = () => { if (started) frag.appendChild(row); };
+  const startRow = () => { row = document.createElement("div"); row.className = "row50"; started = true; rowCount = 0; };
+  for (let i = 0; i < newest.length; i++) {
+    if (breakIdx.has(i)) {          // this cell is right after a time break
+      flushRow();
+      const b = breaks.find((x) => chrono.length - 1 - x.i === i);
+      const band = document.createElement("div");
+      band.className = "gapmark";
+      const t0 = norm[b.i - 1].ts;
+      const t1 = norm[b.i].ts;
+      band.textContent = `⏱ ${fmtDur(b.delta)} gap · ${t0 !== null ? fmtClock(t0) : "?"} → ${t1 !== null ? fmtClock(t1) : "?"}`;
+      frag.appendChild(band);
+      startRow();
     }
-    frag.appendChild(row);
+    if (!started) startRow();
+    if (rowCount >= SPINS_PER_ROW) { flushRow(); startRow(); }
+    const s = newest[i];
+    const bEl = document.createElement("button");
+    bEl.className = "cell " + cellClass(s.number);
+    bEl.textContent = s.number;
+    bEl.dataset.n = s.number;
+    if (i === 0 && s === newest[0]) bEl.classList.add("latest"); // newest spin → pink arrow
+    if (hl && hl.hit.has(s.number)) bEl.classList.add("hl-hit");
+    if (hl && hl.nb.has(s.number)) bEl.classList.add("hl-nb");
+    row.appendChild(bEl);
+    rowCount++;
   }
+  flushRow();
   // mark last 10 spins (orange fill) + doubles (purple outline)
   const cells = frag.querySelectorAll(".cell");
   for (let i = 0; i < Math.min(10, newest.length); i++) cells[i].classList.add("recent");
@@ -98,6 +190,17 @@ function renderGrid() {
   grid.replaceChildren(frag);
   $("shownCount").textContent = state.spins.length;
   $("totalCount").textContent = state.total;
+  // header gap badge
+  const badge = $("gapBadge");
+  if (badge) {
+    if (breaks.length) {
+      badge.textContent = `${breaks.length} break${breaks.length > 1 ? "s" : ""}`;
+      badge.classList.remove("hidden");
+      badge.title = breaks.map((b) => fmtDur(b.delta)).join(" · ");
+    } else {
+      badge.classList.add("hidden");
+    }
+  }
   renderHits();
 }
 
@@ -257,6 +360,11 @@ async function tickHealth() {
   // Transitions matrix tracks the wheel in realtime too (one new pair per
   // spin, live-merged from journald in the API).
   loadTransitions().catch(() => {});
+  // All other metric panels refresh every tick as well — the user wants
+  // the whole dashboard live, not just the grid. (Audit stays hourly.)
+  loadZTable().catch(() => {});
+  loadStreaks().catch(() => {});
+  loadRolling().catch(() => {});
   // adaptive cadence: no new number yet -> hyperpoll (2s); new spin landed -> 44s
   scheduleNext(newSpin ? POLL_MS : HYPER_POLL_MS);
 }
