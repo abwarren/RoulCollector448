@@ -1,0 +1,6 @@
+[Unit]
+Description=Roulette 2 collector watchdog (one-shot check)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -u /home/wa/.hermes/scripts/roulette2_watchdog.py

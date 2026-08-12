@@ -27,9 +27,21 @@ Live dashboard for the Table 448 Auto Roulette spin collector (Sunbet / Evolutio
                                         └──────────────────────┘
 ```
 
-The collector stays a dumb writer. Nothing in it changes. The dashboard talks to a
-read-only API so it can be pointed at this box over the network when the Ubuntu
-server comes up — no SQLite file access, no code changes.
+The collector stays a dumb writer. The dashboard talks to a read-only API so
+it can be pointed at this box over the network when the Ubuntu server comes
+up — no SQLite file access, no code changes.
+
+## Collector (`collector/`)
+
+The collector lives in this repo (source of truth) and deploys to
+`~/.hermes/scripts/roulette2_collector.py` (systemd user unit
+`roulette-collector2.service`). See `docs/collector-reliability.md` for the
+2026-08-12 no-gaps fix: 120s stall threshold, recovery ladder, CDP timeouts,
+freshness watchdog.
+
+**Credentials are NOT in the repo** (it's public). The collector reads
+`SUNBET_USER`/`SUNBET_PASS` from env vars or `~/.config/roulette2_collector.env`
+(KEY=VALUE, chmod 600).
 
 ## Docs
 
