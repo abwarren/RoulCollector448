@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS spin_observations (
     raw_payload       TEXT,
     sequence_hint     INTEGER,
     validation_status TEXT NOT NULL DEFAULT 'PENDING',
+    -- PRD §18/§19: per-observation server->collector latency (every spin),
+    -- computed at record time so even observations that never reach the
+    -- canonical table (deduped / batch-pending) carry the latency record.
+    capture_latency   REAL,
+    commit_latency    REAL,
     UNIQUE (source, payload_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_obs_game ON spin_observations(game_id);

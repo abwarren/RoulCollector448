@@ -94,3 +94,74 @@ def test_color_contradiction_flagged_end_to_end(monkeypatch):
     # severity SUSPECT (the number itself is valid — the contradiction is a
     # source-integrity flag, not structural invalidity)
     assert logged[0]["severity"] in ("WARNING", "CRITICAL")
+
+
+def test_latency_tracker_fed_per_spin():
+    """PRD §19: validate_new_spin feeds the session latency tracker."""
+    from datetime import datetime, timedelta, timezone
+    from collector.validator import LatencyTracker
+    tr = LatencyTracker()
+    state = {"validation_issues": 0, "session_id": "s1",
+             "latency_tracker": tr, "latency_last_alert": 0.0}
+    now = datetime.now(timezone.utc)
+    for i in range(5):
+        ts = (now - timedelta(seconds=10 - i)).isoformat()
+        rc.validate_new_spin(state, _spin(17, f"g{i}", ts=ts,
+                                          desc="17 Black"), None)
+    stats = tr.stats()
+    assert stats["n"] == 5
+    assert stats["p50"] is not None
+
+
+def test_observation_latency_persisted():
+    """PRD §18/§19: every observation row carries its capture_latency."""
+    import sqlite3
+    from collector import observer, schema
+    db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "obs_lat.db")
+    if os.path.exists(db):
+        os.remove(db)
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    schema.ensure_schema(conn)
+    sid = observer.start_session(conn)
+    observer.record_observation(
+        conn, source="websocket", session_id=sid, game_id="g1", number=17,
+        description="17 Black", server_ts="2026-08-15T23:00:00Z",
+        capture_latency=0.6, commit_latency=0.4,
+    )
+    row = conn.execute(
+        "SELECT capture_latency, commit_latency FROM spin_observations"
+    ).fetchone()
+    assert row["capture_latency"] == 0.6
+    assert row["commit_latency"] == 0.4
+    conn.close()
+    os.remove(db)
+
+
+def test_score_components_real_inputs():
+    """§22: the six components reflect real per-pass data."""
+    from collector.reconciler import ReconciliationResult, RepairPlan
+    # a broken pass: 2 renumbered, 1 conflict, reconciliation failed
+    plan = RepairPlan(
+        renumber=[("b", 2), ("c", 3)],
+        duplicates=["a"],
+        duplicate_kinds={"a": "CONFLICT"},
+        window_achieved=500, authoritative=True, repairable=True,
+    )
+    result = ReconciliationResult(
+        ok=False, window=500, message="conflict",
+        plan=plan, missing_count=0, correction_count=0,
+        duplicate_count=1, reorder_count=2, extra_count=0, repairable=True,
+    )
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    spins = [{"captured_at": (now - timedelta(seconds=30)).isoformat(),
+              "timestamp": (now - timedelta(seconds=31)).isoformat(),
+              "number": 17} for _ in range(50)]
+    state = {"spins": spins}
+    comps = rc._score_components(state, result)
+    assert comps["reconciliation"] == 0.0      # failed
+    assert comps["duplicates"] == 0.0          # CONFLICT
+    assert comps["sequence"] < 1.0             # renumbered
+    assert comps["freshness"] == 1.0           # fresh spins
+    assert comps["timestamps"] == 1.0          # clean timestamps

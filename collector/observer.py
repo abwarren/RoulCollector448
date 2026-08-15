@@ -79,20 +79,28 @@ def end_session(conn, session_id: str, spins_captured: int = 0,
 # --------------------------------------------------------------------------
 def record_observation(conn, *, source: str, session_id: str, game_id=None,
                        number=None, description=None, server_ts=None,
-                       raw_payload=None, sequence_hint=None):
+                       raw_payload=None, sequence_hint=None,
+                       capture_latency=None, commit_latency=None):
     """Persist one raw observation. Returns the row id, or None if the
     identical content was already observed (dedup). Never mutates existing
-    rows."""
+    rows.
+
+    PRD §18/§19: capture_latency (server_ts -> observed_at) and
+    commit_latency (observed_at -> committed) are stored per observation so
+    every spin carries its latency record, even if it never reaches the
+    canonical table."""
     if source not in _VALID_SOURCES:
         raise ValueError(f"invalid observation source: {source!r}")
     h = payload_hash(source, game_id, number, server_ts)
     cur = conn.execute(
         "INSERT OR IGNORE INTO spin_observations "
         "(observed_at, source, session_id, game_id, number, description, "
-        " server_ts, payload_hash, raw_payload, sequence_hint) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " server_ts, payload_hash, raw_payload, sequence_hint, "
+        " capture_latency, commit_latency) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (now_iso(), source, session_id, game_id, number, description,
-         server_ts, h, raw_payload, sequence_hint),
+         server_ts, h, raw_payload, sequence_hint,
+         capture_latency, commit_latency),
     )
     conn.commit()
     return cur.lastrowid if cur.rowcount else None

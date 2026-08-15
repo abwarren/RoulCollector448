@@ -218,6 +218,80 @@ LATENCY_P99_ALERT_S = 10.0
 LATENCY_ALERT_COOLDOWN_S = 300  # don't spam the same alert
 
 
+def _freshness_component(spins, now=None) -> float:
+    """§22 capture-freshness component: 1.0 when a spin arrived within 3x
+    cadence (3 min), decaying to 0.0 after 15 min of silence."""
+    if not spins:
+        return 0.0
+    last = spins[-1].get("captured_at") or spins[-1].get("timestamp")
+    if not last:
+        return 0.0
+    try:
+        import datetime as _dt
+        t = _dt.datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=_dt.timezone.utc)
+        now = now or _dt.datetime.now(_dt.timezone.utc)
+        age = (now - t).total_seconds()
+    except Exception:
+        return 0.0
+    if age <= 180:
+        return 1.0
+    if age >= 900:
+        return 0.0
+    return 1.0 - (age - 180) / (900 - 180)
+
+
+def _timestamp_component(spins, window: int = 50) -> float:
+    """§22 timestamp-integrity component: 1 − fraction of recent spins with
+    check_timestamp problems (unparseable, future skew, latency)."""
+    if not spins:
+        return 1.0
+    bad = 0
+    for sp in spins[-window:]:
+        probs = validator.check_timestamp(
+            sp.get("timestamp"), sp.get("captured_at"))
+        if probs:
+            bad += 1
+    return 1.0 - bad / min(len(spins), window)
+
+
+def _score_components(state, result, conn=None) -> dict:
+    """Compute all six §22 components from a reconcile pass + live state.
+    Pure-ish; any DB failure degrades a component to its neutral value."""
+    comps = {
+        "freshness": _freshness_component(state.get("spins") or []),
+        "sequence": 1.0,
+        "reconciliation": 0.0 if not result.ok else 1.0,
+        "duplicates": 1.0,
+        "timestamps": _timestamp_component(state.get("spins") or []),
+        "source_agreement": 1.0,
+    }
+    # sequence continuity: 1 − (renumbered+reordered) / window
+    plan = result.plan
+    n_seq = len(plan.renumber) + len(plan.reorder)
+    if n_seq:
+        comps["sequence"] = max(0.0, 1.0 - n_seq / max(plan.window_achieved, 1))
+    # duplicate/conflict: CONFLICT -> 0 (critical), else 1 − dup_rate
+    if plan.duplicates:
+        if "CONFLICT" in plan.duplicate_kinds.values():
+            comps["duplicates"] = 0.0
+        else:
+            comps["duplicates"] = max(
+                0.0, 1.0 - len(plan.duplicates) / max(plan.window_achieved, 1))
+    # source agreement: real WS-vs-DOM ratio when pairs were checked, else
+    # neutral 1.0 (absence of the second source is not disagreement).
+    if conn is not None:
+        try:
+            from collector import source_agreement
+            ag = source_agreement.verify_recent_agreement(conn, window=50)
+            if ag.get("checked"):
+                comps["source_agreement"] = ag.get("agreement_ratio", 1.0)
+        except Exception:
+            pass
+    return comps
+
+
 def _latency_seconds(a, b) -> float | None:
     """Seconds from ISO timestamp a to b; None if unparseable/negative."""
     try:
@@ -529,6 +603,7 @@ def make_on_ws_frame(state):
                         "captured_at": datetime.now().isoformat()
                     })
                     # v3: record the raw observation (immutable) — dedup by content
+                    obs_ts = datetime.now().isoformat()
                     s["obs_buffer"].append({
                         "source": "websocket",
                         "session_id": s["session_id"],
@@ -538,6 +613,9 @@ def make_on_ws_frame(state):
                         "server_ts": ts or None,
                         "raw_payload": payload,
                         "sequence_hint": s["ws_captured"],
+                        # PRD §18/§19: per-observation server->collector
+                        # latency, computed at capture time.
+                        "capture_latency": _latency_seconds(ts, obs_ts),
                     })
                     s["new_since_save"] += 1
                     s["ws_captured"] += 1
@@ -857,10 +935,16 @@ async def collect_loop():
                         telemetry.inc("reconciliation_failures")
                     state_machine.observe(reconciled_ok=result.ok,
                                           repairing=repaired is not None)
-                    score = health.compute(
-                        reconciliation=0.0 if not result.ok else 1.0,
-                        source_agreement=0.5,  # DOM cross-check not yet fused
-                    )
+                    # §22: feed ALL six components from real per-pass data —
+                    # freshness (spin recency), sequence (renumber/reorder),
+                    # reconciliation, duplicates (kinds), timestamps
+                    # (check_timestamp rate), source_agreement (WS-vs-DOM).
+                    sconn2 = schema.connect()
+                    try:
+                        comps = _score_components(state, result, conn=sconn2)
+                    finally:
+                        sconn2.close()
+                    score = health.compute(**comps)
                     sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
                     observer.log_event(
                         schema.connect(),
@@ -882,6 +966,7 @@ async def collect_loop():
                             "repaired": repaired,
                             "state": state_machine.state,
                             "score": score,
+                            "score_components": comps,
                             "telemetry": telemetry.snapshot(),
                         },
                     )
