@@ -42,6 +42,12 @@ NO_OUTPUT_S = 10 * 60    # no-output threshold: process alive + heartbeat
                          # handles short silences; 10 min is generous over
                          # that while still catching a permanently silent
                          # stream the ladder failed to revive.
+DATA_UNHEALTHY_S = 15 * 60  # data-health threshold: process alive + fresh
+                            # heartbeat BUT the data is unhealthy (gaps /
+                            # open repairs / bad score) — "spin stream
+                            # incomplete" (PRD §29). 15 min: the collector's
+                            # own L2 reconcile runs every 30-60s, so a
+                            # persisting data problem is real, not transient.
 
 DATA_DIR = os.environ.get("RC_DATA_DIR") or os.path.join(
     os.path.expanduser("~"), ".roulette2")
@@ -87,6 +93,88 @@ def decide(*, alive: bool, hb_age, proc_age=None,
             return "no_output", True
         return "ok", False
     return "hung", True                  # alive but silent too long
+
+
+def data_health(db_path: str) -> dict:
+    """Evaluate the DATA health of the collector DB (PRD §29 "spin stream
+    incomplete"): the process may be alive + heartbeating while the data is
+    silently broken. Pure read of the DB (read-only connection), never
+    raises.
+
+    Returns {"sequence_health": bool, "reconciliation_health": bool,
+             "repair_queue": int (open/unresolved), "data_health_score": int|None,
+             "healthy": bool, "reason": str}.
+
+    healthy = sequence intact (no gaps in the latest window) AND the last
+    reconciliation passed AND no open/unresolved repair events AND a
+    non-bad data-health score (when recorded).
+    """
+    import sqlite3
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True,
+                               timeout=5)
+        conn.row_factory = sqlite3.Row
+        # sequence health — gaps in the latest 500 (by canonical sequence)
+        try:
+            rows = conn.execute(
+                "SELECT sequence_no FROM roulette_spins "
+                "WHERE sequence_no IS NOT NULL ORDER BY sequence_no DESC LIMIT 500"
+            ).fetchall()
+            seqs = sorted(r[0] for r in rows)
+            gaps = 0
+            if seqs:
+                present = set(seqs)
+                gaps = sum(1 for i in range(seqs[0], seqs[-1] + 1)
+                           if i not in present)
+        except Exception:
+            gaps = 0   # legacy table without sequence_no — can't judge
+        sequence_health = gaps == 0
+        # reconciliation health — the latest RECONCILIATION event ok?
+        try:
+            import json as _json
+            row = conn.execute(
+                "SELECT details FROM integrity_events "
+                "WHERE event_type IN ('RECONCILIATION','RECONCILIATION_LIGHT') "
+                "ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            rec = _json.loads(row["details"]) if row and row["details"] else {}
+            recon_ok = bool(rec.get("ok", False))
+            score = rec.get("score")
+        except Exception:
+            recon_ok, score = False, None
+        # repair queue — unresolved events (OPEN / FAILED / UNVERIFIED)
+        try:
+            open_repairs = conn.execute(
+                "SELECT COUNT(*) FROM repair_events "
+                "WHERE status IN ('OPEN','FAILED','UNVERIFIED')"
+            ).fetchone()[0]
+        except Exception:
+            open_repairs = 0
+        conn.close()
+        score_ok = score is None or score >= 75   # WARNING band or better
+        healthy = (sequence_health and recon_ok and open_repairs == 0
+                   and score_ok)
+        reason = []
+        if not sequence_health:
+            reason.append(f"{gaps} sequence gap(s)")
+        if not recon_ok:
+            reason.append("last reconciliation failed/unavailable")
+        if open_repairs:
+            reason.append(f"{open_repairs} unresolved repair event(s)")
+        if not score_ok:
+            reason.append(f"data health score {score} < 75")
+        return {
+            "sequence_health": sequence_health,
+            "reconciliation_health": recon_ok,
+            "repair_queue": open_repairs,
+            "data_health_score": score,
+            "healthy": healthy,
+            "reason": "; ".join(reason) or "ok",
+        }
+    except Exception as e:
+        return {"sequence_health": False, "reconciliation_health": False,
+                "repair_queue": -1, "data_health_score": None,
+                "healthy": False, "reason": f"db read failed: {e}"}
 
 
 def _hb_info():
@@ -178,7 +266,42 @@ def main():
                              hb_status=hb_status, last_spin_age=last_spin_age)
 
     if action == "ok":
-        print(f"WATCHDOG: ok (heartbeat {int(age)}s old, pids {pids})")
+        # PRD §29 "spin stream incomplete": the process is alive + the loop
+        # is heartbeating — but is the DATA healthy? Evaluate the six
+        # signals (collector_alive / last_spin_age / sequence_health /
+        # reconciliation_health / repair_queue / data_health_score). On a
+        # data problem, run the L2 reconciliation first (non-destructive);
+        # if it persists, escalate to kill+restart.
+        try:
+            dh = data_health(os.environ.get(
+                "RC_DB_PATH", os.path.join(DATA_DIR, "roulette2_spins.db")))
+        except Exception:
+            dh = {"healthy": True, "reason": "db read skipped"}
+        if not dh["healthy"]:
+            print(f"WATCHDOG: process alive + heartbeating but DATA UNHEALTHY — "
+                  f"{dh['reason']} — running L2 reconciliation")
+            try:
+                sys.path.insert(0, os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__))))
+                from scripts.standalone_reconcile import run_once
+                run_once()
+                print("  L2 reconciliation attempted — checking data again")
+                dh2 = data_health(os.environ.get(
+                    "RC_DB_PATH", os.path.join(DATA_DIR, "roulette2_spins.db")))
+                if dh2["healthy"]:
+                    print("WATCHDOG: data healthy after reconciliation — ok")
+                    return 0
+                print(f"WATCHDOG: data STILL unhealthy after reconcile — "
+                      f"{dh2['reason']} — killing and restarting")
+                _kill(pids)
+                _start_collector()
+                return 1
+            except Exception as e:
+                print(f"WATCHDOG: L2 reconciliation failed ({e}) — escalating")
+                _kill(pids)
+                _start_collector()
+                return 1
+        print(f"WATCHDOG: ok (heartbeat {int(age)}s old, pids {pids}, data healthy)")
         return 0
     if action == "starting":
         print(f"WATCHDOG: collector booting (pid {pids}, heartbeat not yet "

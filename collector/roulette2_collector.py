@@ -804,19 +804,50 @@ async def collect_loop():
             return False
 
         async def recover(base_count):
-            """Recovery ladder. Returns True if a new spin arrived."""
+            """PRD §30 self-healing escalation ladder — 9 rungs (0-8).
+
+            The destructive recovery (WS re-arm, refresh, reload, browser
+            restart) is now PRECEDED by data reconciliation (L2): a spin
+            stream that silently gaps (process alive, journal active,
+            sequence incomplete) is often a DATA problem, not a transport
+            one — reconcile the rolling 500 from authoritative history and
+            repair BEFORE tearing down the browser. Returns True if a new
+            spin arrived OR the sequence was repaired.
+            """
             nonlocal browser, context, page
             state["hb_status"] = "RECOVERING"
-            print("  [RECOVERY] rung 0/4: passive wait — stream often self-heals")
+            print("  [RECOVERY] L0: observe — passive wait, stream often self-heals")
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after passive wait"):
                 return True
 
-            print("  [RECOVERY] rung 1/4: re-arm CDP interception")
+            print("  [RECOVERY] L1: cross-check DOM — the secondary channel")
+            await poll_dom()
+            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after DOM cross-check"):
+                return True
+
+            print("  [RECOVERY] L2: reconcile rolling 500 — data before destructive")
+            try:
+                sconn = schema.connect()
+                from scripts.standalone_reconcile import recover_gaps
+                outcomes = recover_gaps(sconn, window=RECONCILE_WINDOW)
+                sconn.close()
+                repaired = [o for o in outcomes if o["resolution"] == "REPAIRED"]
+                print(f"    reconcile: {len(outcomes)} gap(s), {len(repaired)} repaired")
+                if repaired:
+                    # the sequence was repaired from history — the stream
+                    # itself may be fine; don't tear down the browser.
+                    return True
+            except Exception as e:
+                print(f"    reconcile failed: {e}")
+            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after reconcile"):
+                return True
+
+            print("  [RECOVERY] L3: re-arm WebSocket (CDP interception)")
             await setup_cdp(page, context, on_frame)
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after CDP re-arm"):
                 return True
 
-            print("  [RECOVERY] rung 2/4: click game refresh button (best effort)")
+            print("  [RECOVERY] L4: refresh game (best effort)")
             clicked = await click_refresh_button(page)
             if not clicked:
                 print("    refresh button not found — dumping DOM candidates for next time")
@@ -824,7 +855,7 @@ async def collect_loop():
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after refresh click"):
                 return True
 
-            print("  [RECOVERY] rung 3/4: page reload — verifying frames resume")
+            print("  [RECOVERY] L5: reload page — verifying frames resume")
             try:
                 await asyncio.wait_for(page.reload(wait_until="domcontentloaded"), timeout=60)
             except Exception as e:
@@ -834,13 +865,23 @@ async def collect_loop():
             if await wait_for_new_spin(base_count, RELOAD_VERIFY_S, "after reload"):
                 return True
 
-            print("  [RECOVERY] rung 4/4: full browser restart (fresh session)")
+            print("  [RECOVERY] L6: restart browser (fresh session)")
             try:
                 await browser.close()
             except Exception:
                 pass
             browser, context, page = await start_session(p, state, on_frame)
-            return await wait_for_new_spin(base_count, RESTART_VERIFY_S, "after browser restart")
+            if await wait_for_new_spin(base_count, RESTART_VERIFY_S, "after browser restart"):
+                return True
+
+            print("  [RECOVERY] L7: restart collector (full process restart)")
+            state["hb_status"] = "ABANDONED"
+            write_heartbeat(state, spins)
+            state["session_ok"] = False
+            return False
+
+            # L8 (flag unresolved incident) is the CALLER's job: the stall
+            # branch logs RECOVERY_FAILED + the watchdog escalates.
 
         print(f"[6] Monitoring — {len(spins)} spins so far\n")
         start_time = time.time()

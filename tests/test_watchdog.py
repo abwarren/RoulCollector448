@@ -146,3 +146,157 @@ def test_no_output_unknown_last_spin_ok():
     the no-output verdict requires the SPIN silence to be provable."""
     action, restart = decide(alive=True, hb_age=30, last_spin_age=None)
     assert action == "ok" and restart is False
+
+
+# ---------------------------------------------------------------------------
+# PRD §29 "spin stream incomplete" — data health evaluation
+# ---------------------------------------------------------------------------
+def test_data_health_healthy(tmp_path):
+    """A clean DB (no gaps, reconciliation ok, no open repairs, good score)
+    -> healthy with a clear reason."""
+    import sqlite3
+    from collector import schema
+    from collector import observer
+    from watchdog_win import data_health
+    db = tmp_path / "healthy.db"
+    c = sqlite3.connect(db)
+    c.row_factory = sqlite3.Row
+    schema.ensure_schema(c)
+    for i in range(1, 501):
+        c.execute(
+            "INSERT INTO roulette_spins (number, description, color, game_id, "
+            "server_ts, captured_at, sequence_no, status) VALUES (?,?,?,?,?,?,?,?)",
+            (i % 37, f"{i % 37} X", "Black", f"g{i}", f"t{i}", f"t{i}", i, "VALID"),
+        )
+    from collector import observer
+    observer.log_event(c, "RECONCILIATION", severity="INFO",
+                       details={"ok": True, "score": 98},
+                       root_cause="DATA_INTEGRITY")
+    c.commit()
+    c.close()
+    dh = data_health(str(db))
+    assert dh["sequence_health"] is True
+    assert dh["reconciliation_health"] is True
+    assert dh["repair_queue"] == 0
+    assert dh["data_health_score"] == 98
+    assert dh["healthy"] is True
+    assert dh["reason"] == "ok"
+
+
+def test_data_health_gap_detected(tmp_path):
+    """A sequence gap in the latest window -> data unhealthy (the §29
+    "spin stream incomplete" case: process fine, data broken)."""
+    import sqlite3
+    from collector import schema
+    from watchdog_win import data_health
+    db = tmp_path / "gap.db"
+    c = sqlite3.connect(db)
+    c.row_factory = sqlite3.Row
+    schema.ensure_schema(c)
+    for i in range(1, 502):
+        if i == 250:
+            continue   # the gap
+        c.execute(
+            "INSERT INTO roulette_spins (number, description, color, game_id, "
+            "server_ts, captured_at, sequence_no, status) VALUES (?,?,?,?,?,?,?,?)",
+            (i % 37, f"{i % 37} X", "Black", f"g{i}", f"t{i}", f"t{i}", i, "VALID"),
+        )
+    from collector import observer
+    observer.log_event(c, "RECONCILIATION", severity="INFO",
+                       details={"ok": True, "score": 98},
+                       root_cause="DATA_INTEGRITY")
+    c.commit()
+    c.close()
+    dh = data_health(str(db))
+    assert dh["sequence_health"] is False
+    assert dh["healthy"] is False
+    assert "sequence gap" in dh["reason"]
+
+
+def test_data_health_open_repairs(tmp_path):
+    """Open/unresolved repair events -> unhealthy."""
+    import sqlite3
+    from collector import schema
+    from collector import observer
+    from watchdog_win import data_health
+    db = tmp_path / "open.db"
+    c = sqlite3.connect(db)
+    c.row_factory = sqlite3.Row
+    schema.ensure_schema(c)
+    for i in range(1, 501):
+        c.execute(
+            "INSERT INTO roulette_spins (number, description, color, game_id, "
+            "server_ts, captured_at, sequence_no, status) VALUES (?,?,?,?,?,?,?,?)",
+            (i % 37, f"{i % 37} X", "Black", f"g{i}", f"t{i}", f"t{i}", i, "VALID"),
+        )
+    from collector import observer
+    observer.log_event(c, "RECONCILIATION", severity="INFO",
+                       details={"ok": True, "score": 98},
+                       root_cause="DATA_INTEGRITY")
+    from collector.repairer import Repairer
+    Repairer(c).record_gap(start_seq=999, end_seq=999, size=1)   # OPEN
+    c.commit()
+    c.close()
+    dh = data_health(str(db))
+    assert dh["repair_queue"] >= 1
+    assert dh["healthy"] is False
+    assert "unresolved repair" in dh["reason"]
+
+
+def test_data_health_bad_score(tmp_path):
+    """A CRITICAL data health score (< 75) -> unhealthy even with no gaps."""
+    import sqlite3
+    from collector import schema
+    from watchdog_win import data_health
+    db = tmp_path / "score.db"
+    c = sqlite3.connect(db)
+    c.row_factory = sqlite3.Row
+    schema.ensure_schema(c)
+    for i in range(1, 501):
+        c.execute(
+            "INSERT INTO roulette_spins (number, description, color, game_id, "
+            "server_ts, captured_at, sequence_no, status) VALUES (?,?,?,?,?,?,?,?)",
+            (i % 37, f"{i % 37} X", "Black", f"g{i}", f"t{i}", f"t{i}", i, "VALID"),
+        )
+    from collector import observer
+    observer.log_event(c, "RECONCILIATION", severity="CRITICAL",
+                       details={"ok": False, "score": 40},
+                       root_cause="DATA_INTEGRITY")
+    c.commit()
+    c.close()
+    dh = data_health(str(db))
+    assert dh["reconciliation_health"] is False
+    assert dh["data_health_score"] == 40
+    assert dh["healthy"] is False
+    assert "score 40" in dh["reason"]
+
+
+def test_data_health_missing_db(tmp_path):
+    """A missing/unreadable DB -> unhealthy (the data cannot be trusted)."""
+    from watchdog_win import data_health
+    dh = data_health(str(tmp_path / "does_not_exist.db"))
+    assert dh["healthy"] is False
+    assert "db read failed" in dh["reason"]
+
+
+# ---------------------------------------------------------------------------
+# PRD §30 — escalation ladder order (reconcile BEFORE destructive recovery)
+# ---------------------------------------------------------------------------
+def test_ladder_reconcile_before_destructive():
+    """The recovery ladder's rung order: L2 reconcile must precede L3
+    (re-arm WS) and all destructive rungs — data first, transport second."""
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "collector", "roulette2_collector.py"),
+        encoding="utf-8").read()
+    # the recover() ladder prints each rung — assert L2 precedes L3+
+    idx_reconcile = src.find("[RECOVERY] L2")
+    idx_ream = src.find("[RECOVERY] L3")
+    idx_refresh = src.find("[RECOVERY] L4")
+    idx_reload = src.find("[RECOVERY] L5")
+    idx_browser = src.find("[RECOVERY] L6")
+    assert idx_reconcile != -1
+    assert 0 < idx_reconcile < idx_ream < idx_refresh < idx_reload < idx_browser
+    # the full 9-rung ladder (L0..L7 in the collector, L8 flagged by caller)
+    for rung in ("L0", "L1", "L2", "L3", "L4", "L5", "L6", "L7"):
+        assert src.find(f"[RECOVERY] {rung}") != -1
