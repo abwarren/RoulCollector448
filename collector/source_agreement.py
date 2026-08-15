@@ -97,6 +97,7 @@ def verify_recent_agreement(conn, window: int = 50) -> dict:
     dom_obs = [r for r in rows if r["source"] == "dom"]
 
     ws_used = set()
+    conflict_gids = set()
     checked = verified = conflicts = 0
     for dom in dom_obs:                       # newest first
         dom_t = _iso_epoch(dom["observed_at"])
@@ -117,10 +118,13 @@ def verify_recent_agreement(conn, window: int = 50) -> dict:
             verified += 1
         elif res["status"] == "CONFLICT":
             conflicts += 1
+            if ws.get("game_id"):
+                conflict_gids.add(ws["game_id"])
 
     return {
         "checked": checked,
         "verified": verified,
         "conflicts": conflicts,
+        "conflict_game_ids": sorted(conflict_gids),
         "agreement_ratio": (verified / checked) if checked else 0.0,
     }

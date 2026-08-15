@@ -121,6 +121,12 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
             try:
                 rep = repairer.Repairer(conn)
                 rep.apply_plan(result.plan)
+            except repairer.RepairRefused as e:
+                # PRD §25: a refused repair is surfaced, never silent — the
+                # reason + UNVERIFIED marking are already in the queue/rows.
+                observer.log_event(conn, "REPAIR_REFUSED", severity="WARNING",
+                                   details={"reason": str(e)},
+                                   root_cause="DATA_INTEGRITY")
             except Exception as e:
                 try:
                     observer.log_event(conn, "REPAIR_FAILED",

@@ -43,7 +43,7 @@ def test_agreeing_observations_verified(tmp_path):
     try:
         res = source_agreement.verify_recent_agreement(conn)
         assert res == {"checked": 1, "verified": 1, "conflicts": 0,
-                       "agreement_ratio": 1.0}
+                       "conflict_game_ids": [], "agreement_ratio": 1.0}
         assert _disagreement_events(conn) == []
     finally:
         conn.close()
@@ -61,7 +61,7 @@ def test_disagreeing_observations_log_conflict(tmp_path):
     try:
         res = source_agreement.verify_recent_agreement(conn)
         assert res == {"checked": 1, "verified": 0, "conflicts": 1,
-                       "agreement_ratio": 0.0}
+                       "conflict_game_ids": ["g2"], "agreement_ratio": 0.0}
         evs = _disagreement_events(conn)
         assert len(evs) == 1
         details = json.loads(evs[0]["details"])
@@ -89,7 +89,7 @@ def test_dom_without_ws_pair_unverified(tmp_path):
     try:
         res = source_agreement.verify_recent_agreement(conn)
         assert res == {"checked": 0, "verified": 0, "conflicts": 0,
-                       "agreement_ratio": 0.0}
+                       "conflict_game_ids": [], "agreement_ratio": 0.0}
         assert _disagreement_events(conn) == []
     finally:
         conn.close()

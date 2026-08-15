@@ -926,6 +926,13 @@ async def collect_loop():
                             repaired = rep.apply_plan(result.plan)
                             sconn.close()
                             telemetry.inc("repairs")
+                        except repairer.RepairRefused as e:
+                            # PRD §25: refused (no authority / no identity /
+                            # conflicting sources) — surfaced, never silent.
+                            observer.log_event(schema.connect(),
+                                               "REPAIR_REFUSED", severity="WARNING",
+                                               details={"reason": str(e)},
+                                               root_cause="DATA_INTEGRITY")
                         except Exception as e:
                             observer.log_event(schema.connect(),
                                                "REPAIR_FAILED", severity="CRITICAL",

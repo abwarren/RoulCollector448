@@ -42,6 +42,7 @@ _ROOT_CAUSE = {
     "SPIN_SUSPECT": ("DATA", "Per-spin validation: anomaly flagged"),
     "SPIN_NO_IDENTITY": ("DATA", "No establishable identity — kept as observation"),
     "DUPLICATE": ("DATA", "Duplicate game_id collapsed (CONFLICT=critical)"),
+    "REPAIR_REFUSED": ("DATA", "PRD §25: auto-repair refused (no authority/identity/conflict)"),
     "LATENCY_HIGH": ("PERFORMANCE", "Capture latency P99 breach — degradation warning"),
     "RECONCILIATION": ("RECONCILIATION", "Full-window audit vs site history"),
     "RECONCILIATION_LIGHT": ("RECONCILIATION", "Light audit vs site history"),

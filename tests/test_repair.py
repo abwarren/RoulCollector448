@@ -9,7 +9,7 @@ import sqlite3
 import pytest
 
 from collector import observer, schema
-from collector.repairer import Repairer
+from collector.repairer import RepairRefused, Repairer
 from collector.reconciler import HistoryRecord, RepairPlan
 
 
@@ -173,21 +173,23 @@ def test_apply_plan_backfills_and_corrects(db):
 
 
 def test_apply_plan_refuses_without_authority(db):
+    """PRD §25: no authoritative source -> RepairRefused, nothing applied."""
     plan = RepairPlan(missing=[HistoryRecord(game_id="c", number=3)],
                       authoritative=False)
-    with pytest.raises(ValueError):
+    with pytest.raises(RepairRefused):
         Repairer(db).apply_plan(plan)
     assert _count(db, "c") == 0   # nothing applied
 
 
 def test_apply_plan_refuses_without_identity(db):
     """Signal C identity gate: authoritative but number-only history (DOM
-    text) must NOT drive repairs — identity is never manufactured (PRD §5)."""
+    text) must NOT drive repairs — identity is never manufactured (PRD §5).
+    Refused (RepairRefused), never silently applied."""
     plan = RepairPlan(
         missing=[HistoryRecord(game_id=None, number=3)],
         window_achieved=2, authoritative=True, repairable=False,
     )
-    with pytest.raises(ValueError, match="identity"):
+    with pytest.raises(RepairRefused):
         Repairer(db).apply_plan(plan)
     assert db.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0] == 0
 

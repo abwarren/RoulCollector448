@@ -34,6 +34,85 @@ STATUS_REPAIRED = "REPAIRED"
 STATUS_UNVERIFIED = "UNVERIFIED"
 
 
+class RepairRefused(Exception):
+    """Raised when a plan must NOT be auto-repaired (PRD §25).
+
+    Carries the refusal reason (one of the §25 never-auto-repair
+    conditions) so callers can surface it without losing it.
+    """
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+# PRD §25 — NEVER auto-repair conditions (each is an explicit, enforced gate;
+# a refused plan marks the affected canonical rows UNVERIFIED and records the
+# refusal in the repair queue — surfaced, never silent).
+NEVER_AUTO_REPAIR = {
+    "NO_AUTHORITY": "authoritative source unavailable",
+    "NO_IDENTITY": "identity cannot be established (game_id or server_ts)",
+    "CONFLICTING_SOURCES": "multiple conflicting sources (WS vs DOM disagreement)",
+    "STATISTICAL_INFERENCE": "repair would require statistical inference (observed > inferred, PRD §5)",
+}
+
+
+def refuse_repair(conn, plan, reason_key: str) -> None:
+    """Mark the plan's affected canonical rows UNVERIFIED and record the
+    refusal in the repair queue (PRD §25: -> UNVERIFIED, surfaced).
+
+    Marks the game_ids touched by the plan (missing/corrections/duplicates/
+    reorder) as UNVERIFIED with the refusal reason in the queue. Never
+    raises; the marking is best-effort (a DB failure degrades to a logged
+    refusal event)."""
+    reason = NEVER_AUTO_REPAIR.get(reason_key, reason_key)
+    # affected game_ids from the plan
+    gids = set()
+    for r in plan.missing:
+        if r.game_id:
+            gids.add(r.game_id)
+    for gid, _old, _new in plan.corrections:
+        gids.add(gid)
+    gids.update(plan.duplicates)
+    gids.update(g for g, _ in plan.renumber)
+    gids.update(plan.reorder)
+    try:
+        for gid in gids:
+            conn.execute(
+                "UPDATE roulette_spins SET status=?, last_verified_at=? "
+                "WHERE game_id=? AND status != 'UNVERIFIED'",
+                (STATUS_UNVERIFIED, now_iso(), gid),
+            )
+        conn.commit()
+        # record the refusal in the repair queue (status=UNVERIFIED keeps it
+        # out of the RESOLVED/FAILED retry paths)
+        cur = conn.execute(
+            "INSERT INTO repair_events "
+            "(created_at, incident_type, start_game_id, end_game_id, "
+            " affected_count, status, attempts, last_attempt_at, "
+            " resolved_at, resolution, details) "
+            "VALUES (?,?,?,?,?,?,1,?,NULL,?,?)",
+            (now_iso(), "REPAIR_REFUSED", (sorted(gids) or [None])[0],
+             (sorted(gids) or [None])[-1], len(gids),
+             "UNVERIFIED", now_iso(), reason,
+             json.dumps({"reason_key": reason_key, "reason": reason,
+                         "game_ids": sorted(gids)})),
+        )
+        conn.commit()
+    except Exception:
+        try:
+            conn.execute(
+                "INSERT INTO repair_events "
+                "(created_at, incident_type, status, attempts, resolution, details) "
+                "VALUES (?,?,?,1,?,?)",
+                (now_iso(), "REPAIR_REFUSED", "UNVERIFIED", reason,
+                 json.dumps({"reason_key": reason_key, "reason": reason})),
+            )
+            conn.commit()
+        except Exception:
+            pass
+
+
 def _ts_epoch(s) -> float | None:
     """Parse ISO-8601 or epoch (s/ms) timestamps to epoch seconds — the
     chronological evidence for reconstruct_ordering. None when unparseable
@@ -329,7 +408,7 @@ class Repairer:
     # ------------------------------------------------------------------
     # Apply a whole RepairPlan atomically (PRD §33)
     # ------------------------------------------------------------------
-    def apply_plan(self, plan, verify_fn=None) -> dict:
+    def apply_plan(self, plan, verify_fn=None, check_conflict: bool = True) -> dict:
         """Apply a ReconciliationResult's plan in ONE transaction.
 
         Returns {applied, backfilled, corrected, collapsed, reordered,
@@ -339,15 +418,56 @@ class Repairer:
         """
         summary = {"backfilled": 0, "corrected": 0,
                    "collapsed": 0, "reordered": 0, "extras_flagged": 0}
+        # PRD §25 — NEVER auto-repair gates (each refusal marks the affected
+        # rows UNVERIFIED + records the reason in the queue; surfaced, never
+        # silent). A conflicting-sources check runs first (the reconciler's
+        # history authority + the DOM secondary channel disagreeing is a
+        # refusal, not a repair).
+        if check_conflict and self.conn is not None:
+            try:
+                from collector import source_agreement
+                ag = source_agreement.verify_recent_agreement(
+                    self.conn, window=50)
+                # §25: refuse only when a CONFLICT involves THIS plan's
+                # affected game_ids — a stale unrelated disagreement (another
+                # spin) must not block a correct repair. game_ids that
+                # disagree appear in verify_recent_agreement's conflicts
+                # only when they carried identity; without identity the
+                # conflict is positional and the affected ids are unknown,
+                # so any conflict then refuses (conservative).
+                affected = set()
+                for r in plan.missing:
+                    if r.game_id:
+                        affected.add(r.game_id)
+                for gid, _o, _n in plan.corrections:
+                    affected.add(gid)
+                affected.update(plan.duplicates)
+                scoped_conflict = False
+                conflict_gids = set(ag.get("conflict_game_ids") or [])
+                if conflict_gids:
+                    # identity-bearing conflicts: refuse only if one involves
+                    # this plan's game_ids
+                    if not affected or (affected & conflict_gids):
+                        scoped_conflict = True
+                elif ag.get("conflicts", 0) > 0:
+                    # positional conflicts (no identity): conservative —
+                    # refuse (the affected ids are unknown)
+                    scoped_conflict = True
+                if ag.get("checked") and scoped_conflict:
+                    refuse_repair(self.conn, plan, "CONFLICTING_SOURCES")
+                    raise RepairRefused(NEVER_AUTO_REPAIR["CONFLICTING_SOURCES"])
+            except RepairRefused:
+                raise
+            except Exception:
+                pass   # agreement check is best-effort; never blocks repair
         if not plan.authoritative:
-            raise ValueError("refusing to repair without authoritative history")
+            refuse_repair(self.conn, plan, "NO_AUTHORITY")
+            raise RepairRefused(NEVER_AUTO_REPAIR["NO_AUTHORITY"])
         # Identity gate (Signal C): DOM-style number-only history can DETECT
         # but never drive repairs — identity is never manufactured (PRD §5).
         if not plan.repairable:
-            raise ValueError(
-                "refusing to repair without authoritative identity "
-                "(game_id or server_ts on the remote history)"
-            )
+            refuse_repair(self.conn, plan, "NO_IDENTITY")
+            raise RepairRefused(NEVER_AUTO_REPAIR["NO_IDENTITY"])
 
         def _apply(conn):
             # missing -> backfill at their exact authoritative position
