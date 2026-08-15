@@ -17,7 +17,12 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "scripts"))
 
-from watchdog_win import BOOT_GRACE_S, SILENCE_S, decide  # noqa: E402
+from watchdog_win import (  # noqa: E402
+    BOOT_GRACE_S,
+    NO_OUTPUT_S,
+    SILENCE_S,
+    decide,
+)
 
 
 def test_process_dead_with_fresh_heartbeat_restarts():
@@ -96,3 +101,48 @@ def test_decide_never_returns_restart_on_ok_or_starting():
         action, restart = decide(**args)
         assert action in ("ok", "starting")
         assert restart is False
+
+
+# ---------------------------------------------------------------------------
+# PRD §29 "no output" — alive + fresh heartbeat but no spins captured
+# ---------------------------------------------------------------------------
+def test_no_output_stale_last_spin():
+    """Alive + fresh heartbeat + last spin > NO_OUTPUT_S ago -> no_output,
+    restart (the silently-dead CDP/WS stream the ladder failed to revive)."""
+    action, restart = decide(alive=True, hb_age=30, last_spin_age=NO_OUTPUT_S + 60)
+    assert action == "no_output" and restart is True
+
+
+def test_no_output_abandoned_status():
+    """Alive + fresh heartbeat + the collector declared ABANDONED -> the
+    ladder gave up; the lingering process is useless, restart."""
+    action, restart = decide(alive=True, hb_age=30, hb_status="ABANDONED")
+    assert action == "no_output" and restart is True
+
+
+def test_no_output_recent_spin_is_ok():
+    """Alive + fresh heartbeat + last spin recent -> ok, even mid-STALLED
+    (the ladder is working, leave it alone)."""
+    action, restart = decide(alive=True, hb_age=30, hb_status="STALLED",
+                             last_spin_age=60)
+    assert action == "ok" and restart is False
+
+
+def test_no_output_not_when_hung():
+    """A stale heartbeat takes precedence: alive + stale hb -> hung, not
+    no_output (the process is frozen, not just silent)."""
+    action, restart = decide(alive=True, hb_age=SILENCE_S + 1,
+                             last_spin_age=NO_OUTPUT_S + 60)
+    assert action == "hung" and restart is True
+
+
+def test_no_output_fresh_spin_ok():
+    action, restart = decide(alive=True, hb_age=30, last_spin_age=5)
+    assert action == "ok" and restart is False
+
+
+def test_no_output_unknown_last_spin_ok():
+    """No last_spin info yet (fresh boot, no spins) -> ok (not no_output) —
+    the no-output verdict requires the SPIN silence to be provable."""
+    action, restart = decide(alive=True, hb_age=30, last_spin_age=None)
+    assert action == "ok" and restart is False
