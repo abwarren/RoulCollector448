@@ -54,9 +54,9 @@ CRED_FILE = os.path.expanduser("~/.config/roulette2_collector.env")
 # ---- integrity layer (v3) — additive, never blocks capture ----
 os.environ.setdefault("RC_DB_PATH", DB_FILE)
 try:                                     # repo layout (package context)
-    from . import observer, schema, reconciler, history, validator
+    from . import observer, schema, reconciler, history, validator, repairer
 except ImportError:                      # deployed flat script on the box
-    import observer, schema, reconciler, history, validator  # type: ignore
+    import observer, schema, reconciler, history, validator, repairer  # type: ignore
 
 # Reconcile cadence (PRD §31): fast per-spin validation, lightweight rolling
 # reconciliation every 45s, full effective-window audit every 5 min. The
@@ -510,6 +510,21 @@ async def collect_loop():
                               "server_ts": s.get("timestamp")} for s in spins]
                     result = reconciler.reconcile(local, history.StaticHistoryProvider(remote),
                                                   window=RECONCILE_WINDOW)
+                    # Phase 4: apply deterministic repairs when the authority
+                    # is solid (PRD §24). Reconcile -> repair -> VERIFY: the
+                    # repair is only success once re-validation passes.
+                    repaired = None
+                    if result.plan.authoritative and not result.ok:
+                        try:
+                            sconn = schema.connect()
+                            rep = repairer.Repairer(sconn)
+                            repaired = rep.apply_plan(result.plan)
+                            sconn.close()
+                        except Exception as e:
+                            observer.log_event(schema.connect(),
+                                               "REPAIR_FAILED", severity="CRITICAL",
+                                               details={"error": str(e)},
+                                               root_cause="DATA_INTEGRITY")
                     sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
                     observer.log_event(
                         schema.connect(),
@@ -524,6 +539,7 @@ async def collect_loop():
                             "duplicates": result.duplicate_count,
                             "authoritative": result.plan.authoritative,
                             "message": result.message,
+                            "repaired": repaired,
                         },
                     )
                     if is_full:
