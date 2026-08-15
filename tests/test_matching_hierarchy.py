@@ -52,13 +52,14 @@ def test_level1_game_id_matches_and_repairable():
 
 def test_level1_game_id_divergence_breaks_walk():
     """Same position, different game_id -> NOT a match (breaks the walk).
-    With a divergent newest record there is no anchor, so match_level 0
-    (no identity established) and the newest suffix is flagged."""
+    With a divergent newest record there is no anchor, so match_level 0 —
+    BUT the remote still carries game_ids, so it remains repair-capable
+    (a reorder at the newest position is exactly when indices don't match)."""
     local = [canon("x", 5), canon("a", 1)]
     remote = [rem("b", 5), rem("a", 1)]
     plan = compare_windows(local, remote)
     assert plan.match_level == 0      # no matched anchor (broke at i=0)
-    assert not plan.repairable
+    assert plan.repairable            # remote has game_id identity
     assert plan.missing or plan.extras or plan.corrections
 
 

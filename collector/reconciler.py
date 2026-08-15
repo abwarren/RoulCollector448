@@ -217,9 +217,13 @@ def compare_windows(local, remote) -> RepairPlan:
             continue
         break
     plan.match_level = max_level
-    # repair authority requires a game_id (level 1) match specifically —
-    # weaker levels (2/3/4) align positions but never manufacture identity
-    plan.repairable = game_id_matched
+    # Repair authority: the REMOTE history carries game_id identity (level-1
+    # capable). We do NOT require an index to have matched — a reorder/swap
+    # is precisely the case where indices DON'T match (E vs D at i=0), yet
+    # the game_ids on both sides still make the remote authoritative. A
+    # number-only remote (DOM) stays detection-only (identity never
+    # manufactured, PRD §5).
+    plan.repairable = any(r.game_id for r in remote)
 
     # everything beyond the matched prefix needs attention
     divergent_local = local[matched:]
@@ -366,16 +370,37 @@ def compare_windows(local, remote) -> RepairPlan:
                 oldest_first = sorted(shifted, key=lambda g: rpos[g])
                 plan.renumber = [(g, len(remote) - rpos[g]) for g in oldest_first]
 
-        # same-set reorder (only when no shift was detected)
-        if (not plan.renumber and matched > 0
+        # same-set reorder — no anchor required: the divergent region has the
+        # SAME game_id set in a different order (a swap at the newest
+        # position breaks the walk at i=0 with matched=0, but set equality
+        # ALREADY proves it's the same history, so it can't false-fire).
+        # Only the MINIMAL out-of-order suffix is renumbered: the longest
+        # common prefix (oldest-first) is already correct and untouched.
+        if (not plan.renumber
                 and len(divergent_local) == len(divergent_remote) > 0):
             r_gids = [r.game_id for r in divergent_remote if r.game_id]
             l_gids = [l.get("game_id") for l in divergent_local if l.get("game_id")]
             if (r_gids and l_gids and len(r_gids) == len(divergent_remote)
+                    and len(l_gids) == len(divergent_local)
                     and set(r_gids) == set(l_gids) and r_gids != l_gids):
-                oldest_first = list(reversed(r_gids))  # authoritative, oldest-first
-                plan.reorder = oldest_first
-                plan.renumber = [(g, len(remote) - rpos[g]) for g in oldest_first]
+                # oldest-first orders (divergent lists are newest-first)
+                ro = list(reversed(r_gids))   # remote, oldest-first
+                lo = list(reversed(l_gids))   # local, oldest-first
+                # longest common prefix is ALREADY correct -> exclude it
+                common = 0
+                while (common < len(ro) and common < len(lo)
+                       and ro[common] == lo[common]):
+                    common += 1
+                suffix = ro[common:]          # the minimal out-of-order set
+                if not suffix:
+                    pass
+                # absolute positions: each suffix game_id's authoritative
+                # position IS its remote index (len(remote) - rpos) — correct
+                # for a newest swap AND a middle swap (anchored records keep
+                # their slots; the suffix takes its true remote positions).
+                plan.reorder = suffix         # oldest-first
+                plan.renumber = [(g, len(remote) - rpos[g])
+                                 for g in suffix]
                 plan.reorder_start = plan.renumber[0][1] if plan.renumber else 1
 
     plan.window_achieved = len(remote)

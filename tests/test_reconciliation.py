@@ -33,7 +33,7 @@ def rem(game_id, number, ts=None, order=None):
 # compare_windows — the core walk
 # ---------------------------------------------------------------------------
 def test_identical_windows_verify():
-    local = [canon("a", 1), canon("b", 2), canon("c", 3)]
+    local = [canon("c", 3), canon("b", 2), canon("a", 1)]  # newest-first
     remote = [rem("c", 3), rem("b", 2), rem("a", 1)]  # newest-first
     plan = compare_windows(local, remote)
     assert plan.authoritative

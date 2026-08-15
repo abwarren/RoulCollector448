@@ -248,16 +248,18 @@ def test_number_only_history_detects_but_never_repairs():
 
 
 def test_reorder_detected_and_absolute_start():
-    """A B D E -> A B E D: same game_id set, different order -> renumber to
-    the authoritative order (Signal B continuity, PRD §11/§13)."""
+    """A B D E -> A B E D: same game_id set, different order -> renumber the
+    MINIMAL out-of-order suffix to the AUTHORITATIVE (remote) order. The
+    remote chronological order is a,d,b,e — so d→2, b→3; a is anchored."""
     local = [canon("e", 5), canon("d", 4), canon("b", 2), canon("a", 1)]  # [e,d,b,a]
     remote = [rem("e", 5), rem("b", 2), rem("d", 4), rem("a", 1)]         # [e,b,d,a]
     plan = compare_windows(local, remote)
     assert plan.repairable
-    # walk: e matches, then local [d,b,a] vs remote [b,d,a] — same set,
-    # different order -> renumber to the authoritative order
-    assert plan.reorder == ["a", "d", "b"]          # authoritative, oldest-first
-    assert plan.renumber == [("a", 1), ("d", 2), ("b", 3)]  # relative
+    # walk: e matches, then divergent local [d,b,a] vs remote [b,d,a] — same
+    # set, different order; the remote (authoritative) chronological order
+    # is a,d,b,e -> only the d,b suffix is renumbered, in remote order
+    assert plan.reorder == ["d", "b"]          # authoritative, oldest-first
+    assert plan.renumber == [("d", 2), ("b", 3)]  # absolute positions
     assert not plan.missing and not plan.corrections and not plan.extras
 
 
@@ -267,8 +269,8 @@ def test_reorder_detected_via_reconcile():
     remote_recs = [rem("e", 5), rem("b", 2), rem("d", 4), rem("a", 1)]    # newest-first
     result = reconcile(local, _Static(remote_recs), window=10)
     assert not result.ok
-    assert result.reorder_count == 3
-    assert result.plan.renumber == [("a", 1), ("d", 2), ("b", 3)]  # absolute (base 0)
+    assert result.reorder_count == 2
+    assert result.plan.renumber == [("d", 2), ("b", 3)]  # absolute (base 0)
 
 
 def test_insertion_shift_repairs_suffix():
