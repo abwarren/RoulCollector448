@@ -356,6 +356,53 @@ class Repairer:
         return {"checked": n, "reordered": changed,
                 "gaps_found": gaps, "collisions_found": collisions}
 
+    def record_gap(self, *, start_seq: int, end_seq: int, size: int,
+                   status: str = "OPEN", resolution: str | None = None,
+                   details: dict | None = None) -> int:
+        """Record a gap in the canonical sequence as a repair event (the
+        §26-new recovery lifecycle). A gap is OPEN when first detected;
+        the recovery loop later resolves it RESOLVED/REPAIRED (repaired gap)
+        or UNVERIFIED (permanent gap). Returns the event id.
+
+        start/end are the sequence positions bounding the gap; size is the
+        number of missing spins. Never raises."""
+        try:
+            now = now_iso()
+            cur = self.conn.execute(
+                "INSERT INTO repair_events "
+                "(created_at, incident_type, start_game_id, end_game_id, "
+                " affected_count, status, attempts, last_attempt_at, "
+                " resolved_at, resolution, details) "
+                "VALUES (?, 'GAP', ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+                (now, f"seq:{start_seq}", f"seq:{end_seq}", size,
+                 status, now,
+                 now if status in ("RESOLVED", "UNVERIFIED") else None,
+                 resolution,
+                 json.dumps(details) if details else None),
+            )
+            self.conn.commit()
+            return cur.lastrowid if cur.lastrowid is not None else 0
+        except Exception:
+            return 0
+
+    def resolve_gap(self, event_id: int, *, status: str = "RESOLVED",
+                    resolution: str = "REPAIRED",
+                    details: dict | None = None) -> None:
+        """Resolve a gap event after the recovery loop: RESOLVED/REPAIRED
+        (the gap was backfilled) or UNVERIFIED (permanent — could not be
+        repaired). Never raises."""
+        try:
+            now = now_iso()
+            self.conn.execute(
+                "UPDATE repair_events SET status=?, resolution=?, resolved_at=?, "
+                "details=?, last_attempt_at=? WHERE id=?",
+                (status, resolution, now,
+                 json.dumps(details) if details else None, now, event_id),
+            )
+            self.conn.commit()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Audit — every repair writes a repair_events row (PRD §23 queue)
     # ------------------------------------------------------------------

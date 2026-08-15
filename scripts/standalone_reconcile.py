@@ -139,12 +139,109 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
         sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
         if recon and recon.get("reordered"):
             details["reconstruct"] = recon   # the sweep changed ordering
+        # §26-new: gap recovery loop — detect -> attempt -> repair -> verify.
+        # Each gap becomes a GAP repair event resolved REPAIRED or UNVERIFIED.
+        try:
+            gap_outcomes = recover_gaps(conn, window=window)
+            if gap_outcomes:
+                details["gaps"] = gap_outcomes
+        except Exception:
+            pass
         observer.log_event(conn, "RECONCILIATION", severity=sev,
                            details=details, root_cause="DATA_INTEGRITY")
         return details
     finally:
         if owns_conn:
             conn.close()
+
+
+def recover_gaps(conn, window: int = RECONCILE_WINDOW) -> list:
+    """PRD §26-new — gap recovery loop.
+
+    For every gap in the latest window's canonical sequence:
+      1. record it OPEN (GAP repair event)
+      2. attempt recovery: query the authoritative rolling history and
+         repair (backfill) if possible — the same identity-gated pipeline
+         (game_id authority; §25 refusals respected)
+      3. re-run validation (a fresh reconcile pass)
+      4. if the gap is gone -> RESOLVED/REPAIRED (repaired gap)
+         else -> UNVERIFIED (permanent/unverified gap)
+
+    Returns a list of {start, end, size, status, resolution} outcomes —
+    one per gap found. Never raises; failures degrade a gap to UNVERIFIED.
+    """
+    rep = repairer.Repairer(conn)
+    outcomes = []
+    # sequence gaps in the latest window (the §26 definition)
+    rows = conn.execute(
+        "SELECT sequence_no FROM roulette_spins "
+        "WHERE sequence_no IS NOT NULL "
+        "ORDER BY sequence_no DESC LIMIT ?",
+        (window,),
+    ).fetchall()
+    seqs = sorted(r[0] for r in rows)
+    if not seqs:
+        return outcomes
+    holes = []
+    for i in range(seqs[0], seqs[-1] + 1):
+        if i not in set(seqs):
+            holes.append(i)
+    # group consecutive holes into gaps
+    gaps = []
+    for h in holes:
+        if gaps and h == gaps[-1]["end"] + 1:
+            gaps[-1]["end"] = h
+            gaps[-1]["size"] += 1
+        else:
+            gaps.append({"start": h, "end": h, "size": 1})
+    for g in gaps:
+        ev_id = rep.record_gap(start_seq=g["start"], end_seq=g["end"],
+                               size=g["size"], status="OPEN",
+                               resolution=None,
+                               details={"note": "gap detected — attempting recovery"})
+        # attempt recovery: query history + repair (identity-gated). The
+        # authoritative history is read from THE SAME conn (spin_observations
+        # with source='history' live in the same DB) so the recovery works
+        # regardless of RC_DB_PATH / which DB the caller connected to.
+        recovered = False
+        try:
+            local = [{"game_id": r[0], "number": r[1], "server_ts": r[2]}
+                     for r in conn.execute(
+                         "SELECT game_id, number, server_ts FROM roulette_spins "
+                         "ORDER BY sequence_no DESC LIMIT ?", (window,))]
+            rows = conn.execute(
+                "SELECT game_id, number, server_ts FROM spin_observations "
+                "WHERE source='history' AND game_id IS NOT NULL "
+                "ORDER BY id DESC LIMIT ?", (window,)
+            ).fetchall()
+            remote = [history.HistoryRecord(game_id=r[0], number=r[1],
+                                             server_ts=r[2]) for r in rows]
+            result = reconciler.reconcile(
+                list(reversed(local)),
+                history.StaticHistoryProvider(remote), window=window)
+            if result.plan.repairable and not result.ok:
+                rep.apply_plan(result.plan)
+            # re-run validation: is the gap gone?
+            after = conn.execute(
+                "SELECT COUNT(*) FROM roulette_spins WHERE sequence_no=?",
+                (g["start"],)).fetchone()[0]
+            recovered = after > 0
+        except Exception:
+            recovered = False
+        if recovered:
+            rep.resolve_gap(ev_id, status="RESOLVED", resolution="REPAIRED",
+                            details={"start": g["start"], "end": g["end"],
+                                     "size": g["size"]})
+            outcomes.append({**g, "status": "RESOLVED", "resolution": "REPAIRED"})
+        else:
+            rep.resolve_gap(ev_id, status="UNVERIFIED", resolution="UNVERIFIED",
+                            details={"start": g["start"], "end": g["end"],
+                                     "size": g["size"],
+                                     "note": "could not be repaired — "
+                                             "permanent/unverified gap"})
+            outcomes.append({**g, "status": "UNVERIFIED",
+                             "resolution": "UNVERIFIED"})
+    return outcomes
 
 
 def main() -> None:

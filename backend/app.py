@@ -303,6 +303,20 @@ def integrity():
             "health_score": score,
             "collector_state": (last_recon or {}).get("state"),
             "rolling500": rolling_verify(conn),
+            # §26-new: gap lifecycle — the dashboard distinguishes a
+            # REPAIRED gap (RESOLVED/REPAIRED) from an UNVERIFIED one
+            # (UNVERIFIED = permanent). Latest GAP events, newest first.
+            "gap_events": [
+                {"id": r["id"], "created_at": r["created_at"],
+                 "start": r["start_game_id"], "end": r["end_game_id"],
+                 "size": r["affected_count"], "status": r["status"],
+                 "resolution": r["resolution"], "resolved_at": r["resolved_at"]}
+                for r in conn.execute(
+                    "SELECT id, created_at, start_game_id, end_game_id, "
+                    "affected_count, status, resolution, resolved_at "
+                    "FROM repair_events WHERE incident_type='GAP' "
+                    "ORDER BY id DESC LIMIT 10").fetchall()
+            ],
             "components": {
                 "collector": "Healthy" if collector_ok else "Stalled",
                 "websocket": "Healthy" if ws_ok else "Idle",

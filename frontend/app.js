@@ -640,6 +640,22 @@ async function loadIntegrity() {
       $("vRepaired").textContent = r5.repaired;
       $("vPerfect").classList.toggle("hidden", !r5.perfect);
     }
+    // §26-new: gap lifecycle — distinguish a REPAIRED gap from an
+    // UNVERIFIED (permanent) one. Each GAP event renders as
+    // "Repaired N-spin gap" (green) or "Unverified N-spin gap" (amber).
+    const gapBox = $("vGapEvents");
+    if (gapBox && d.gap_events) {
+      const items = d.gap_events.map((g) => {
+        const repaired = g.status === "RESOLVED" && g.resolution === "REPAIRED";
+        const label = (repaired ? "Repaired " : "Unverified ") +
+          (g.size || 0) + "-spin gap" +
+          (g.start ? ` (seq ${g.start}${g.end !== g.start ? "-" + g.end : ""})` : "");
+        return `<div class="gap-item ${repaired ? "gap-ok" : "gap-warn"}">` +
+          `<span class="mono">${(g.resolved_at || g.created_at || "").slice(11, 19)}</span> ` +
+          `<span class="${repaired ? "chip chip-ok" : "chip chip-bad"}">${repaired ? "REPAIRED" : "UNVERIFIED"}</span> ${label}</div>`;
+      }).join("");
+      gapBox.innerHTML = items || '<div class="kv">no gaps recorded</div>';
+    }
   } catch {
     $("intVerified").textContent = "—";
   }

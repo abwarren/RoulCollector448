@@ -192,6 +192,10 @@ tbody tr.hl-row td { color: #b2ebf2; }
   display: inline-block; padding: 2px 8px; margin-right: 6px;
   border-radius: 10px; font-size: 11px; letter-spacing: 0.04em;
 }
+.gap-item { margin: 3px 0; font-size: 12px; }
+.gap-ok { color: var(--green, #2e7d32); }
+.gap-warn { color: var(--amber, #b26a00); }
+.gap-item .mono { color: #777; margin-right: 6px; }
 .chip-ok { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
 .chip-bad { background: #fdecea; color: #c62828; border: 1px solid #ef9a9a; }
 .mono { font-variant-numeric: tabular-nums; }
