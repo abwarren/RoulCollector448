@@ -54,9 +54,11 @@ CRED_FILE = os.path.expanduser("~/.config/roulette2_collector.env")
 # ---- integrity layer (v3) — additive, never blocks capture ----
 os.environ.setdefault("RC_DB_PATH", DB_FILE)
 try:                                     # repo layout (package context)
-    from . import observer, schema, reconciler, history, validator, repairer
+    from . import (observer, schema, reconciler, history, validator,
+                   repairer, integrity_state)
 except ImportError:                      # deployed flat script on the box
     import observer, schema, reconciler, history, validator, repairer  # type: ignore
+    import integrity_state  # type: ignore
 
 # Reconcile cadence (PRD §31): fast per-spin validation, lightweight rolling
 # reconciliation every 45s, full effective-window audit every 5 min. The
@@ -491,6 +493,9 @@ async def collect_loop():
             """
             if state["session_id"] is None:
                 return
+            telemetry = integrity_state.Telemetry()
+            health = integrity_state.DataHealthScore()
+            state_machine = integrity_state.RecoveryStateMachine()
             last_light = time.time()
             last_full = 0.0
             while True:
@@ -500,6 +505,7 @@ async def collect_loop():
                 if now - last_light < RECONCILE_LIGHT_S and now - last_full < RECONCILE_FULL_S:
                     continue
                 is_full = (now - last_full) >= RECONCILE_FULL_S
+                telemetry.inc("reconciliations")
                 try:
                     spins = list(state["spins"])[-RECONCILE_WINDOW:]
                     if not spins:
@@ -520,11 +526,20 @@ async def collect_loop():
                             rep = repairer.Repairer(sconn)
                             repaired = rep.apply_plan(result.plan)
                             sconn.close()
+                            telemetry.inc("repairs")
                         except Exception as e:
                             observer.log_event(schema.connect(),
                                                "REPAIR_FAILED", severity="CRITICAL",
                                                details={"error": str(e)},
                                                root_cause="DATA_INTEGRITY")
+                    if not result.ok:
+                        telemetry.inc("reconciliation_failures")
+                    state_machine.observe(reconciled_ok=result.ok,
+                                          repairing=repaired is not None)
+                    score = health.compute(
+                        reconciliation=0.0 if not result.ok else 1.0,
+                        source_agreement=0.5,  # DOM cross-check not yet fused
+                    )
                     sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
                     observer.log_event(
                         schema.connect(),
@@ -540,6 +555,9 @@ async def collect_loop():
                             "authoritative": result.plan.authoritative,
                             "message": result.message,
                             "repaired": repaired,
+                            "state": state_machine.state,
+                            "score": score,
+                            "telemetry": telemetry.snapshot(),
                         },
                     )
                     if is_full:
