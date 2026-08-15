@@ -20,8 +20,12 @@ timeout wrapper as everything else, so a hung page can never freeze capture
 (PRD §47 — the 26-minute CDP freeze is the cautionary tale).
 """
 
+import datetime
+import os
 import re
+import sqlite3
 
+from collector import schema
 from collector.reconciler import HistoryProvider, HistoryRecord
 
 _NUM_RE = re.compile(r"\b([0-3]?[0-9])\b")   # 0-36 candidate
@@ -163,3 +167,177 @@ class StaticHistoryProvider(HistoryProvider):
 
     def fetch_recent_history(self, limit: int = 500) -> list[HistoryRecord]:
         return self._records[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Signal C: authoritative recent history from WebSocket frames
+# ---------------------------------------------------------------------------
+# Evolution game clients push history-shaped payloads on join (snapshot) and
+# periodically ("history", "lastResults", "results", "records" — lists of
+# {gameId, number/value, timestamp}). Unlike DOM text (numbers only), these
+# entries carry game_id + server_ts — the identity the reconciler needs for
+# repair authority (PRD §14 identity hierarchy, §5 observed > inferred).
+
+_NUMBER_KEYS = ("number", "value", "winNumber", "win_number", "result")
+_WRAP_KEYS = ("args", "data", "payload", "body")
+
+
+def _extract_number(entry: dict):
+    for k in _NUMBER_KEYS:
+        v = entry.get(k)
+        if isinstance(v, bool) or v is None:
+            continue
+        try:
+            n = int(v)
+            if 0 <= n <= 36:
+                return n
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _ts_epoch(s) -> float | None:
+    """Parse ISO-8601 or epoch (s/ms) timestamps to epoch seconds."""
+    if not s:
+        return None
+    s = str(s)
+    try:
+        f = float(s)
+        return f if f < 1e12 else f / 1000.0
+    except ValueError:
+        pass
+    try:
+        return datetime.datetime.fromisoformat(
+            s.replace("Z", "+00:00")
+        ).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_history_frame(payload: dict) -> list[HistoryRecord] | None:
+    """Parse a WS frame carrying a list of past results.
+
+    Returns newest-first HistoryRecords, or None when the frame carries no
+    history-shaped list. game_id + server_ts are kept when present (the
+    entries that give the reconciler repair authority, Signal C + B).
+    Frame order: assumed newest-first; reversed only when the first two
+    entries' timestamps prove ascending (oldest-first source).
+    """
+    if not isinstance(payload, dict):
+        return None
+    best: list[HistoryRecord] | None = None
+
+    def consider(candidates):
+        nonlocal best
+        recs = []
+        for i, entry in enumerate(candidates):
+            if not isinstance(entry, dict):
+                continue
+            n = _extract_number(entry)
+            if n is None:
+                continue
+            gid = entry.get("gameId") or entry.get("game_id")
+            ts = (entry.get("timestamp") or entry.get("time")
+                  or entry.get("serverTime") or entry.get("server_ts"))
+            recs.append(HistoryRecord(
+                game_id=str(gid) if gid else None,
+                number=n,
+                server_ts=str(ts) if ts else None,
+                order_hint=i,
+            ))
+        if recs and (best is None or len(recs) > len(best)):
+            best = recs
+
+    for k, v in payload.items():
+        if isinstance(v, list) and v and all(isinstance(x, dict) for x in v[:5]):
+            consider(v)
+    for wrap in _WRAP_KEYS:
+        w = payload.get(wrap)
+        if isinstance(w, dict):
+            for k, v in w.items():
+                if isinstance(v, list) and v and all(isinstance(x, dict) for x in v[:5]):
+                    consider(v)
+    if best is None:
+        return None
+
+    # order: newest-first by timestamp when provable
+    ts0 = _ts_epoch(best[0].server_ts)
+    ts1 = _ts_epoch(best[1].server_ts) if len(best) > 1 else None
+    if ts0 is not None and ts1 is not None and ts0 < ts1:
+        best.reverse()
+    return best
+
+
+class WSHistoryProvider(HistoryProvider):
+    """History buffered from captured WebSocket frames (join snapshot /
+    periodic history payloads), accumulated by the collector's CDP frame
+    handler. Entries carry game_id + server_ts — repair authority, unlike
+    DOM text. `max_window` honestly reflects what was actually buffered.
+    """
+
+    def __init__(self, records: list[HistoryRecord]):
+        self._records = list(records)
+
+    @property
+    def max_window(self) -> int:
+        return len(self._records)
+
+    def fetch_recent_history(self, limit: int = 500) -> list[HistoryRecord]:
+        return self._records[:limit]
+
+
+class DBHistoryProvider(HistoryProvider):
+    """Durable Signal C provider: history observations persisted to
+    spin_observations (source='history') by the collector.
+
+    The in-memory WS ring buffer dies on restart; this provider reloads the
+    persisted history so reconciliation has repair authority from boot,
+    across sessions. Rows are deduped by game_id (same spin seen in
+    overlapping snapshots appears once) and returned newest-first.
+    """
+
+    def __init__(self, conn=None, max_records: int = 2000):
+        self._conn = conn          # optional test connection
+        self._max_records = max_records
+
+    def _rows(self):
+        if self._conn is not None:
+            return self._conn.execute(
+                "SELECT game_id, number, server_ts FROM spin_observations "
+                "WHERE source='history' AND game_id IS NOT NULL "
+                "ORDER BY observed_at DESC LIMIT ?",
+                (self._max_records,),
+            ).fetchall()
+        # No test connection: open our own READ-ONLY connection, resolving
+        # the DB path at call time (schema.DB_PATH is frozen at import; the
+        # collector sets RC_DB_PATH before its integrity-layer import, but a
+        # provider must work regardless of import order).
+        path = os.environ.get("RC_DB_PATH") or schema.default_db_path()
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute(
+                "SELECT game_id, number, server_ts FROM spin_observations "
+                "WHERE source='history' AND game_id IS NOT NULL "
+                "ORDER BY observed_at DESC LIMIT ?",
+                (self._max_records,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def fetch_recent_history(self, limit: int = 500) -> list[HistoryRecord]:
+        seen = {}
+        for r in self._rows():
+            gid = r["game_id"]
+            if gid in seen:
+                continue
+            seen[gid] = HistoryRecord(game_id=gid, number=r["number"],
+                                      server_ts=r["server_ts"])
+            if len(seen) >= limit:
+                break
+        recs = sorted(seen.values(), key=lambda r: r.server_ts or "", reverse=True)
+        return recs[:limit]
+
+    @property
+    def max_window(self) -> int:
+        return len(self._rows())

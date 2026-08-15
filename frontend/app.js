@@ -30,6 +30,7 @@ const state = {
   liveSpin: null,  // newest spin from journald (may not be in DB yet)
   liveSpins: [],   // ALL journald live spins (newest first) — realtime grid
   dbLatest: null,  // newest spin actually in the DB (from API)
+  tick: 0,         // tick counter (incidents refresh gate)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -365,6 +366,9 @@ async function tickHealth() {
   loadZTable().catch(() => {});
   loadStreaks().catch(() => {});
   loadRolling().catch(() => {});
+  loadIntegrity().catch(() => {});
+  // incidents every 6th tick (~30s) — the query is cheap but not per-second
+  if (++state.tick % 6 === 1) loadIncidents().catch(() => {});
   // adaptive cadence: no new number yet -> hyperpoll (2s); new spin landed -> 44s
   scheduleNext(newSpin ? POLL_MS : HYPER_POLL_MS);
 }
@@ -601,6 +605,51 @@ async function loadTransitions() {
     ).join("") + "</tbody>";
 }
 
+/* ---------------- integrity + incidents (PRD §36-37) ---------------- */
+
+async function loadIntegrity() {
+  try {
+    const d = await api("/api/integrity");
+    $("intVerified").textContent = `${d.verified_count} / ${d.total_spins} verified`;
+    $("intScore").textContent = d.health_score !== null && d.health_score !== undefined
+      ? `${d.health_score} · ${d.collector_state || ""}` : `state: ${d.collector_state || "—"}`;
+    const fmt = (ts) => ts ? ts.slice(11, 19) : "—";
+    const rec = d.last_reconciliation;
+    $("intLastRecon").textContent = rec ? `${fmt(rec.at)} · window ${rec.window_achieved ?? rec.window ?? "—"} · ${rec.message || rec.event_type}` : "—";
+    const lr = d.last_repair;
+    $("intLastRepair").textContent = lr ? `${fmt(lr.created_at)} · ${lr.affected_count} spin${lr.affected_count === 1 ? "" : "s"} ${lr.resolution || ""}` : "—";
+    $("intOpen").textContent = d.open_incidents;
+    const c = d.components || {};
+    const chip = (name, ok) => `<span class="chip ${ok ? "chip-ok" : "chip-bad"}">${name}: ${ok ? "Healthy" : "Stalled"}</span>`;
+    $("intComponents").innerHTML =
+      chip("Collector", c.collector === "Healthy") +
+      chip("WebSocket", c.websocket === "Healthy") +
+      chip("DOM", c.dom === "Healthy") +
+      chip("SQLite", c.sqlite === "Healthy");
+  } catch {
+    $("intVerified").textContent = "—";
+  }
+}
+
+async function loadIncidents() {
+  try {
+    const d = await api("/api/incidents?limit=20");
+    const rows = d.incidents || [];
+    $("incidentTable").innerHTML =
+      `<thead><tr><th>Time</th><th>Type</th><th>Affected</th><th>Action</th><th>Result</th><th>Root cause</th></tr></thead><tbody>` +
+      rows.map((x) =>
+        `<tr><td class="mono">${(x.time || "").slice(5, 19).replace("T", " ")}</td>` +
+        `<td class="mono">${x.type || ""}</td>` +
+        `<td>${x.affected || 0}</td>` +
+        `<td>${x.action || ""}</td>` +
+        `<td>${x.result || ""}</td>` +
+        `<td>${x.root_cause || ""}</td></tr>`
+      ).join("") + "</tbody>";
+  } catch {
+    $("incidentTable").innerHTML = "";
+  }
+}
+
 /* ---------------- audit ---------------- */
 
 async function loadAudit() {
@@ -635,6 +684,8 @@ async function boot() {
   loadRolling();
   loadTransitions();
   loadAudit();
+  loadIntegrity();
+  loadIncidents();
   tickHealth();                       // starts adaptive poll loop (2s/44s)
   setInterval(loadAudit, 3600 * 1000); // keep the audit panel fresh hourly
 }

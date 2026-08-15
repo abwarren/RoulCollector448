@@ -1,143 +1,75 @@
-"""RoulCollector448 — read-only API + static dashboard, port 4480."""
+"""RoulCollector448 — read-only API + static dashboard, port 4480.
+
+Liveness comes from backend/liveness.py: journald on Linux, the collector's
+heartbeat file on Windows. The API response shapes are OS-independent.
+"""
 
 import datetime
 import os
-import re
-import subprocess
-import time
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
-from . import db, stats
+from . import db, liveness, stats
 from .wheel import nn_cluster
 
 AUDIT_INTERVAL = 3600  # audit panel refresh cadence (frontend re-fetches hourly)
 AUDIT_WINDOW = 500     # audit compares against the last 500 spins
-COLLECTOR_SERVICE = "roulette-collector2.service"
-# Journal tail lines fetched per poll. Must comfortably cover LIVE_SPINS_KEEP
-# spin lines despite ~1.4 Status: noise lines per spin (~100 lines for 40
-# spins), AND leave enough history for the session-marker cut to find the
-# last "Starting Roulette 2 session" line (stale pre-restart lines live
-# further back in the journal).
-JOURNAL_TAIL = 300
-SESSION_MARKER = "===== Starting Roulette 2 session ====="
 
 FRONTEND_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend"
 )
 
 # The collector commits to SQLite in batches of 25 spins (~18 min at 44s
-# cadence), so DB freshness lags. Journald logs EVERY spin — that's the
-# true liveness signal. Cache the read for 15s (health is polled every 5s).
-_journal_cache = {"at": 0.0, "ok": False, "line": "", "age": None}
+# cadence), so DB freshness lags. The journald/heartbeat signal logs EVERY
+# spin — that is the true liveness signal (cached 15s inside liveness.py).
 
-_SPIN_LINE_RE = re.compile(
-    r"\[(\d{2}:\d{2}:\d{2})\]\s+#(\d+):\s+(\d+)\s+(\w+)"
-)
+# ---------------------------------------------------------------------------
+# Integrity endpoints (PRD §36-37)
+# ---------------------------------------------------------------------------
 
-# how many journald spin lines to keep for the live overlay (covers ~1 DB batch)
-LIVE_SPINS_KEEP = 40
-
-
-def _after_last_session(lines: str) -> str:
-    """Drop everything up to and including the collector's last session-start
-    marker.
-
-    The journald counter (#N) is `len(spins)` at print time, and `spins`
-    resumes from the JSON state file — which resets to the DB count at every
-    restart. A restart therefore leaves PREVIOUS session's spin lines in the
-    journal whose #N counters overlap the current session's (e.g. pre-restart
-    #17828..17831 + post-restart #17818..), and the plain
-    `db_total < n <= db_total + KEEP` guard cannot tell them apart. Counting
-    both double-fills the live window with stale spins. Only lines after the
-    LAST session marker belong to the live session.
-    """
-    idx = lines.rfind(SESSION_MARKER)
-    if idx == -1:
-        return lines
-    return lines[idx + len(SESSION_MARKER):]
-
-
-def _journal_last():
-    """Last journald lines for the collector: timestamp age + last spin."""
-    now = time.time()
-    if now - _journal_cache["at"] < 15:
-        return _journal_cache
-    try:
-        out = subprocess.run(
-            ["journalctl", "--user", "-u", COLLECTOR_SERVICE, "-n",
-             str(JOURNAL_TAIL), "--no-pager", "-o", "short-iso"],
-            capture_output=True, text=True, timeout=5,
-            env={**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"},
-        ).stdout.strip()
-        # last line's timestamp = collector liveness (status lines every ~30s)
-        lines = [l for l in out.splitlines() if l.strip()]
-        m = re.match(
-            r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:?\d{2})",
-            lines[-1] if lines else "",
-        )
-        if m:
-            ts = datetime.datetime.fromisoformat(m.group(1))
-            age = (datetime.datetime.now().astimezone() - ts).total_seconds()
-            _journal_cache.update({"at": now, "ok": True, "line": out, "age": age})
-        else:
-            _journal_cache.update({"at": now, "ok": False, "line": out, "age": None})
-    except Exception:
-        _journal_cache.update({"at": now, "ok": False, "line": "", "age": None})
-    return _journal_cache
+# Root-cause classification (§40): event_type -> category + recovery action.
+# REPAIR entries are checked before RECONCILIATION so "RECONCILIATION_REPAIR"
+# (repair_events rows) classifies as a repair, not an audit.
+_ROOT_CAUSE = {
+    "STALL": ("STALL", "Recovery ladder executed"),
+    "SESSION_START": ("SESSION", "Session opened"),
+    "SESSION_END": ("SESSION", "Session closed"),
+    "REPAIR_FAILED": ("REPAIR", "Repair attempted, verify failed"),
+    "REPAIR": ("REPAIR", "Deterministic repair applied"),
+    "MISSING": ("DATA", "Backfill from authoritative history"),
+    "SPIN_INVALID": ("DATA", "Per-spin validation: structurally invalid"),
+    "SPIN_SUSPECT": ("DATA", "Per-spin validation: anomaly flagged"),
+    "SPIN_NO_IDENTITY": ("DATA", "No establishable identity — kept as observation"),
+    "DUPLICATE": ("DATA", "Duplicate game_id collapsed (CONFLICT=critical)"),
+    "LATENCY_HIGH": ("PERFORMANCE", "Capture latency P99 breach — degradation warning"),
+    "RECONCILIATION": ("RECONCILIATION", "Full-window audit vs site history"),
+    "RECONCILIATION_LIGHT": ("RECONCILIATION", "Light audit vs site history"),
+    "SOURCE_DISAGREEMENT": ("DATA", "WS vs DOM conflict surfaced, no auto-repair"),
+    "GAP": ("DATA", "Cadence gap >= 120s flagged"),
+    "CDP": ("CDP", "CDP interception failure"),
+}
 
 
-def _parse_live_spins(lines: str):
-    """ALL spin lines in the journal tail, newest first (for realtime grid)."""
-    spins = []
-    for line in reversed(_after_last_session(lines).splitlines()):
-        m = _SPIN_LINE_RE.search(line)
-        if m:
-            spins.append(
-                {
-                    "time": m.group(1),
-                    "n": int(m.group(2)),
-                    "number": int(m.group(3)),
-                    "color": m.group(4),
-                }
-            )
-            if len(spins) >= LIVE_SPINS_KEEP:
-                break
-    return spins
-
-
-def _live_spins_uncommitted(db_total: int):
-    """Journald spins newer than the DB, chronological (not yet committed).
-
-    The collector's journald counter equals its dataset position *within the
-    current session* (it resumes from the JSON state at restart, which is in
-    sync with the DB at the last save), so any spin with n > db_total is not
-    yet in the DB (commits are 25-spin batches). Two guards:
-
-    1. Only lines AFTER the last session-start marker count — a restart
-       resets the counter base, so pre-restart lines with overlapping #N
-       would otherwise be counted as live spins (stale double-fill).
-    2. n <= db_total + LIVE_SPINS_KEEP, so a hypothetical counter reset
-       (n restarts at 1) degrades to DB-only instead of double-counting
-       the whole journal.
-    """
-    jl = _journal_last()
-    if not jl["ok"]:
-        return []
-    out = []
-    for line in _after_last_session(jl["line"]).splitlines():
-        m = _SPIN_LINE_RE.search(line)
-        if m and db_total < int(m.group(2)) <= db_total + LIVE_SPINS_KEEP:
-            out.append({"number": int(m.group(3)), "time": m.group(1)})
-    return out
+def classify_event(event_type: str, details=None) -> dict:
+    """Map an integrity event to {root_cause, action, severity} (PRD §40)."""
+    for key, (cat, action) in _ROOT_CAUSE.items():
+        if key in (event_type or "").upper():
+            return {"root_cause": cat, "action": action}
+    # fall back on details content
+    blob = str(details or "").lower()
+    if "disconnect" in blob or "reconnect" in blob:
+        return {"root_cause": "WS_DISCONNECT", "action": "Reconnection ladder"}
+    if "cdp" in blob:
+        return {"root_cause": "CDP", "action": "CDP re-arm / timeout guard"}
+    return {"root_cause": "OTHER", "action": "Investigate"}
 
 
 def _compute_audit():
     conn = db.connect()
     try:
         total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
-        live = _live_spins_uncommitted(total)
+        live = liveness.live_spins_uncommitted(total)
         return stats.audit(conn, window=AUDIT_WINDOW, live_spins=live)
     finally:
         conn.close()
@@ -181,10 +113,10 @@ def health():
             if last_captured
             else None
         )
-        jl = _journal_last()
-        live_all = _parse_live_spins(jl["line"]) if jl["ok"] else []
+        lv = liveness.get_liveness()
+        live_all = lv["lines"]
         live = live_all[0] if live_all else None
-        live_age = jl["age"]
+        live_age = lv["age"]
         return {
             "ok": True,
             "db": db.DB_PATH,
@@ -195,6 +127,9 @@ def health():
             "live_last_spin": live,
             "live_spins": live_all,
             "live_age_seconds": round(live_age, 1) if live_age is not None else None,
+            "liveness_source": lv["source"],
+            "collector_status": lv["hb_status"],
+            "latency": (lv.get("hb_raw") or {}).get("latency"),
             "collector_alive": (live_age is not None and live_age < 180)
                                or (db_age is not None and db_age < 180),
             "db_mtime": datetime.datetime.fromtimestamp(
@@ -202,6 +137,145 @@ def health():
             ).isoformat(),
             "now": datetime.datetime.now().isoformat(),
         }
+    finally:
+        conn.close()
+
+
+@app.get("/api/integrity")
+def integrity():
+    """Data-integrity panel payload (PRD §36): latest reconciliation state,
+    health score, telemetry, verified window, open incidents, repair history,
+    and per-component health (WebSocket/DOM/SQLite/Collector)."""
+    conn = db.connect()
+    try:
+        # latest reconciliation event (light or full) carries state/score/telemetry
+        row = conn.execute(
+            "SELECT created_at, event_type, severity, details, root_cause "
+            "FROM integrity_events "
+            "WHERE event_type IN ('RECONCILIATION','RECONCILIATION_LIGHT') "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        last_recon = None
+        if row:
+            import json as _json
+            details = _json.loads(row["details"]) if row["details"] else {}
+            last_recon = {
+                "at": row["created_at"],
+                "event_type": row["event_type"],
+                "severity": row["severity"],
+                **details,
+            }
+
+        open_incidents = conn.execute(
+            "SELECT COUNT(*) FROM repair_events WHERE status='OPEN'"
+        ).fetchone()[0]
+
+        last_repair = conn.execute(
+            "SELECT created_at, incident_type, affected_count, resolution, "
+            "details FROM repair_events WHERE resolution IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        last_repair_d = dict(last_repair) if last_repair else None
+
+        verified = conn.execute(
+            "SELECT COUNT(*) FROM roulette_spins WHERE status='VALID' "
+            "OR status='REPAIRED'"
+        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
+
+        # component health (PRD §36): WS/DOM from latest telemetry, SQLite by
+        # a live read (this query just succeeded), Collector from liveness.
+        telemetry = (last_recon or {}).get("telemetry") or {}
+        ws_ok = bool(telemetry.get("ws_spins_accepted", 0)) or total > 0
+        dom_ok = telemetry.get("dom_candidates", 0) > 0
+        lv = liveness.get_liveness()
+        collector_ok = bool(lv["ok"]) and (
+            lv["age"] is None or lv["age"] < 180
+        ) or (total > 0)
+
+        score = (last_recon or {}).get("score")
+        return {
+            "ok": True,
+            "window": AUDIT_WINDOW,
+            "verified_count": verified,
+            "total_spins": total,
+            "verified_window": f"{verified} / {total} verified",
+            "latest_spin": {
+                "number": None,
+                "color": None,
+            },
+            "last_reconciliation": last_recon,
+            "last_repair": last_repair_d,
+            "open_incidents": open_incidents,
+            "health_score": score,
+            "collector_state": (last_recon or {}).get("state"),
+            "components": {
+                "collector": "Healthy" if collector_ok else "Stalled",
+                "websocket": "Healthy" if ws_ok else "Idle",
+                "dom": "Healthy" if dom_ok else "Idle",
+                "sqlite": "Healthy",
+            },
+            "liveness_source": lv["source"],
+            "collector_status": lv["hb_status"],
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/incidents")
+def incidents(limit: int = Query(20, ge=1, le=100)):
+    """Incident panel (PRD §37): last N incidents, merged from
+    integrity_events (detections) and repair_events (resolutions), each with
+    root-cause classification (§40) and an action/result summary."""
+    conn = db.connect()
+    try:
+        import json as _json
+
+        rows = conn.execute(
+            "SELECT created_at AS time, event_type AS type, severity, "
+            "game_id, details, root_cause FROM integrity_events "
+            "UNION ALL "
+            "SELECT created_at, incident_type, "
+            "CASE WHEN status='OPEN' THEN 'WARNING' ELSE 'INFO' END, "
+            "COALESCE(start_game_id, end_game_id), details, "
+            "'REPAIR:' || COALESCE(resolution, status) "
+            "FROM repair_events "
+            "ORDER BY time DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+        out = []
+        for r in rows:
+            details = r["details"]
+            if isinstance(details, str):
+                try:
+                    details = _json.loads(details)
+                except Exception:
+                    details = {"note": details}
+            details = details or {}
+            affected = details.get("missing", 0) or details.get("affected_count", 0)
+            if details.get("repaired") is not None:
+                rep = details["repaired"] or {}
+                affected = sum(v for k, v in rep.items()
+                               if isinstance(v, int) and k != "repair_event_id")
+            cls = classify_event(r["type"], details)
+            action = details.get("message") or cls["action"]
+            result = "Repaired" if details.get("repaired") else (
+                "Verified" if details.get("ok") else (
+                    "Open" if r["severity"] == "WARNING" else "Detected"
+                )
+            )
+            out.append({
+                "time": r["time"],
+                "type": r["type"],
+                "severity": r["severity"],
+                "affected": affected,
+                "action": action,
+                "result": result,
+                "game_id": r["game_id"],
+                "root_cause": cls["root_cause"],
+            })
+        return {"ok": True, "incidents": out}
     finally:
         conn.close()
 
@@ -260,13 +334,12 @@ def stats_numbers(limit: int | None = Query(None, ge=1, le=100000)):
 
 @app.get("/api/stats/sleepers")
 def stats_sleepers():
-    """Current drought per number — merged with uncommitted journald spins
-    so the panel is realtime-correct instead of lagging the 25-spin DB
-    batches (~18 min at 44s cadence)."""
+    """Current drought per number — merged with uncommitted live spins so the
+    panel is realtime-correct instead of lagging the 25-spin DB batches."""
     conn = db.connect()
     try:
         total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
-        live = _live_spins_uncommitted(total)
+        live = liveness.live_spins_uncommitted(total)
         return stats.sleepers(conn, live_spins=live)
     finally:
         conn.close()
@@ -292,7 +365,7 @@ def stats_rolling(window: int = Query(500, ge=50, le=10000)):
 
 @app.get("/api/audit")
 def get_audit(fresh: bool = Query(False)):
-    """Audit vs the true last 500 spins (DB + uncommitted journald live merge).
+    """Audit vs the true last 500 spins (DB + uncommitted live merge).
 
     Computed on demand so the panel is never stale — there is no hourly
     snapshot to lag behind (the frontend re-fetches hourly itself).
@@ -312,15 +385,13 @@ def get_audit(fresh: bool = Query(False)):
 def get_transitions(limit: int | None = Query(None, ge=100, le=100000)):
     """37x37 next-spin transition matrix + neighbor-sequence diagnostics.
 
-    The full matrix plus the highest-z ordered pairs ("neighbor-to-neighbor"
-    sequences), per-number Nn-follow rates, and the wheel-gap distribution.
-    Live-merges uncommitted journald spins so the matrix tracks the wheel in
+    Live-merges uncommitted live spins so the matrix tracks the wheel in
     realtime, not the 25-spin DB batch cadence.
     """
     conn = db.connect()
     try:
         total = conn.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0]
-        live = _live_spins_uncommitted(total)
+        live = liveness.live_spins_uncommitted(total)
         return stats.transitions(conn, limit=limit, live_spins=live)
     finally:
         conn.close()

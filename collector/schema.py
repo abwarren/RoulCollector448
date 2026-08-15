@@ -10,9 +10,27 @@ elsewhere; default matches the live collector DB.
 """
 
 import os
+import pathlib
 import sqlite3
 
-DB_PATH = os.environ.get("RC_DB_PATH", "/home/wa/roulette2_spins.db")
+
+def default_db_path() -> str:
+    """DB path: RC_DB_PATH env override, else per-OS default.
+
+    Windows: %USERPROFILE%\\.roulette2\
+oulette2_spins.db (a private data dir,
+    mirroring the Linux /home/wa convention). The dir is created lazily by
+    connect() so read-only consumers (dashboard) never fail on import.
+    """
+    env = os.environ.get("RC_DB_PATH")
+    if env:
+        return env
+    if os.name == "nt":
+        return os.path.join(os.path.expanduser("~"), ".roulette2", "roulette2_spins.db")
+    return "/home/wa/roulette2_spins.db"
+
+
+DB_PATH = default_db_path()
 
 # --------------------------------------------------------------------------
 # Full canonical table for NEW installs. Live DBs are migrated instead.
@@ -33,7 +51,12 @@ CREATE TABLE IF NOT EXISTS roulette_spins (
     status              TEXT DEFAULT 'VALID',
     first_seen_at       TEXT,
     last_verified_at    TEXT,
-    verification_version INTEGER DEFAULT 0
+    verification_version INTEGER DEFAULT 0,
+    dedup_key           TEXT,
+    observed_at         TEXT,
+    committed_at        TEXT,
+    capture_latency     REAL,
+    commit_latency      REAL
 );
 """
 
@@ -44,6 +67,13 @@ CREATE INDEX IF NOT EXISTS idx_spin_number ON roulette_spins(number);
 CREATE INDEX IF NOT EXISTS idx_spin_color  ON roulette_spins(color);
 CREATE INDEX IF NOT EXISTS idx_spin_ts     ON roulette_spins(server_ts);
 CREATE INDEX IF NOT EXISTS idx_spin_seq    ON roulette_spins(sequence_no);
+-- Storage-level uniqueness beyond game_id (PRD: game_id alone is
+-- insufficient if malformed/missing ids occur). dedup_key is the canonical
+-- identity: 'gid:<game_id>' when the id is valid, else 'tsn:<server_ts>|<n>'
+-- (same spin arriving under different/malformed ids still dedupes). Rows
+-- whose identity cannot be established (None) are never inserted canonically.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_spin_dedup
+    ON roulette_spins(dedup_key) WHERE dedup_key IS NOT NULL;
 """
 
 # --------------------------------------------------------------------------
@@ -120,7 +150,29 @@ CANONICAL_ADD_COLUMNS = [
     ("first_seen_at", "TEXT"),
     ("last_verified_at", "TEXT"),
     ("verification_version", "INTEGER DEFAULT 0"),
+    ("dedup_key", "TEXT"),
+    ("observed_at", "TEXT"),
+    ("committed_at", "TEXT"),
+    ("capture_latency", "REAL"),
+    ("commit_latency", "REAL"),
 ]
+
+
+def canonical_dedup_key(game_id, server_ts=None, number=None) -> str | None:
+    """Storage-level identity for a canonical spin (dedup_key).
+
+    game_id when valid (non-empty after strip) — the strongest identity;
+    else server_ts+number — catches the same spin arriving under a
+    malformed/empty id; else None — identity cannot be established, and the
+    caller must NOT insert a canonical row (the spin stays an observation
+    and is surfaced, never silently dropped or guessed).
+    """
+    gid = str(game_id or "").strip()
+    if gid:
+        return f"gid:{gid}"
+    if server_ts is not None and number is not None:
+        return f"tsn:{server_ts}|{number}"
+    return None
 
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
@@ -135,12 +187,19 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     for col, ddl in CANONICAL_ADD_COLUMNS:
         if not _column_exists(conn, "roulette_spins", col):
             conn.execute(f"ALTER TABLE roulette_spins ADD COLUMN {col} {ddl}")
+    # Backfill dedup_key for legacy rows BEFORE the unique index is created:
+    # game_id is NOT NULL UNIQUE, so 'gid:'||game_id keys are already unique.
+    conn.execute(
+        "UPDATE roulette_spins SET dedup_key = 'gid:' || game_id "
+        "WHERE dedup_key IS NULL AND game_id IS NOT NULL"
+    )
     conn.executescript(CANONICAL_INDEXES)
     conn.commit()
 
 
 def connect() -> sqlite3.Connection:
     """Writer connection (WAL, busy timeout) for the collector / tests."""
+    pathlib.Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

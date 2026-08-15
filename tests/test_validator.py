@@ -15,6 +15,7 @@ from collector.validator import (
     cadence_class,
     check_cadence,
     check_color,
+    check_game_id,
     check_number,
     check_timestamp,
     num_to_color,
@@ -68,6 +69,70 @@ def test_validate_spin_valid():
                       game_id="g100", server_ts=_ts(10))
     assert r["status"] == "VALID"
     assert r["problems"] == []
+
+
+# ---------------------------------------------------------------------------
+# Game-ID integrity (PRD §4, §17 — malformed ids are the dedup_key gap)
+# ---------------------------------------------------------------------------
+def test_check_game_id_clean():
+    assert check_game_id("g100") == []
+    assert check_game_id(12345) == []
+
+
+def test_check_game_id_empty_flagged():
+    assert check_game_id("")[0] == "game_id empty/whitespace"
+    assert check_game_id("   ")[0] == "game_id empty/whitespace"
+
+
+def test_check_game_id_missing_flagged():
+    assert check_game_id(None)[0] == "game_id missing"
+
+
+def test_check_game_id_overlong_flagged():
+    assert check_game_id("x" * 200)[0].startswith("game_id suspiciously long")
+
+
+def test_validate_spin_suspect_on_empty_game_id():
+    """An empty game_id makes the spin SUSPECT (identity cannot be trusted),
+    never silently accepted."""
+    r = validate_spin(number=17, color="Black", game_id="  ",
+                      server_ts=_ts(10))
+    assert r["status"] == "SUSPECT"
+    assert any("game_id empty" in p for p in r["problems"])
+
+
+def test_validate_spin_flags_color_contradiction():
+    """PRD §17: '17 Red' is INVALID (17 is Black)."""
+    r = validate_spin(number=17, color="Red", server_ts=_ts(10))
+    assert r["status"] == "INVALID"
+    assert any("color mismatch" in p for p in r["problems"])
+
+
+def test_validate_spin_valid_17_black():
+    """17 + Black is valid."""
+    r = validate_spin(number=17, color="Black", game_id="g100",
+                      server_ts=_ts(10))
+    assert r["status"] == "VALID"
+
+
+# ---------------------------------------------------------------------------
+# PRD §18 — three timestamps + latencies
+# ---------------------------------------------------------------------------
+def test_timestamp_commit_latency():
+    """observed 10s ago, committed 1s ago -> healthy (commit 9s)."""
+    server = _ts(11)
+    observed = _ts(10)
+    committed = _ts(1)
+    assert check_timestamp(server, observed, committed) == []
+
+
+def test_timestamp_commit_latency_high():
+    """observed 10s ago, committed 1h ago... no — committed NOW vs observed
+    10 min ago -> commit latency ~600s > 300s -> flagged."""
+    observed = _ts(600)
+    committed = _ts(0)
+    probs = check_timestamp(None, observed, committed)
+    assert any("commit latency" in p for p in probs)
 
 
 def test_validate_spin_suspect_on_cadence_gap():
@@ -164,3 +229,18 @@ def test_latency_tracker_ignores_negative():
     assert tr.add((base - datetime.timedelta(seconds=10)).isoformat(),
                   (base - datetime.timedelta(seconds=15)).isoformat()) is None
     assert tr.stats()["n"] == 0
+
+
+def test_latency_tracker_commit_latency():
+    tr = LatencyTracker()
+    base = datetime.datetime.now(datetime.timezone.utc)
+    for i in range(10):
+        st = (base - datetime.timedelta(seconds=20 - i)).isoformat()
+        ot = (base - datetime.timedelta(seconds=10 - i)).isoformat()
+        ct = (base - datetime.timedelta(seconds=9 - i)).isoformat()
+        tr.add(st, ot, ct)
+    s = tr.stats()
+    assert s["n"] == 10
+    assert s["commit_n"] == 10
+    assert 0 <= s["commit_p50"] <= 10
+    assert s["commit_max"] >= s["commit_p99"] >= s["commit_p95"] >= s["commit_p50"]

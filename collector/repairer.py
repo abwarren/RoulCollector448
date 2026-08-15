@@ -59,6 +59,7 @@ class Repairer:
     # ------------------------------------------------------------------
     def backfill_missing(self, game_id: str | None, number: int,
                          server_ts: str | None, source: str = "backfilled",
+                         sequence_no: int | None = None,
                          commit: bool = True) -> int:
         """Insert one missing canonical spin. Returns row id."""
         if game_id is None:
@@ -70,13 +71,16 @@ class Repairer:
             server_ts = now_iso()
         desc = f"{number} {'Green' if number == 0 else ('Red' if number in {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36} else 'Black')}"
         color = "Green" if number == 0 else ("Red" if number in {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36} else "Black")
+        dk = schema.canonical_dedup_key(game_id, server_ts, number)
+        if dk is None:
+            raise ValueError("cannot backfill without any identity (game_id or server_ts+number)")
         cur = self.conn.execute(
             "INSERT OR IGNORE INTO roulette_spins "
             "(number, description, color, game_id, server_ts, captured_at, "
-            " source, confidence, status, first_seen_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " source, confidence, status, first_seen_at, sequence_no, dedup_key) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (number, desc, color, game_id, server_ts,
-             now_iso(), source, 1.0, STATUS_REPAIRED, now_iso()),
+             now_iso(), source, 1.0, STATUS_REPAIRED, now_iso(), sequence_no, dk),
         )
         if commit:
             self.conn.commit()
@@ -140,12 +144,12 @@ class Repairer:
     # ------------------------------------------------------------------
     # Reorder — rebuild sequence_no for a window
     # ------------------------------------------------------------------
-    def reorder_window(self, game_ids_in_order: list[str],
+    def reorder_window(self, game_ids_in_order: list[str], start: int = 1,
                        commit: bool = True) -> int:
-        """Assign sequence_no 1..N to the given game_ids in order.
+        """Assign sequence_no start..start+N-1 to the given game_ids in order.
         Returns the count renumbered."""
         n = 0
-        for i, gid in enumerate(game_ids_in_order, start=1):
+        for i, gid in enumerate(game_ids_in_order, start=start):
             cur = self.conn.execute(
                 "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
                 "WHERE game_id=?",
@@ -187,28 +191,53 @@ class Repairer:
         the whole repair rolls back (repair is not success until verified).
         """
         summary = {"backfilled": 0, "corrected": 0,
-                   "collapsed": 0, "reordered": 0}
+                   "collapsed": 0, "reordered": 0, "extras_flagged": 0}
         if not plan.authoritative:
             raise ValueError("refusing to repair without authoritative history")
+        # Identity gate (Signal C): DOM-style number-only history can DETECT
+        # but never drive repairs — identity is never manufactured (PRD §5).
+        if not plan.repairable:
+            raise ValueError(
+                "refusing to repair without authoritative identity "
+                "(game_id or server_ts on the remote history)"
+            )
 
         def _apply(conn):
-            # missing -> backfill
+            # missing -> backfill at their exact authoritative position
             for rec in plan.missing:
                 if rec.game_id:
                     self.backfill_missing(rec.game_id, rec.number, rec.server_ts,
+                                          sequence_no=plan.missing_seq.get(rec.game_id),
                                           commit=False)
                     summary["backfilled"] += 1
             # corrections
             for gid, _old, new in plan.corrections:
                 if self.correct_value(gid, new, commit=False):
                     summary["corrected"] += 1
-            # duplicates -> collapse
+            # duplicates -> collapse, preferring the row that matches the
+            # authoritative value (from corrections: (gid, old, new) — new
+            # is what the authoritative history says the spin IS).
+            keep_by_gid = {c[0]: c[2] for c in plan.corrections}
             for gid in plan.duplicates:
-                summary["collapsed"] += self.collapse_duplicate(gid, commit=False)
-            # reorder
-            if plan.reorder:
-                summary["reordered"] = self.reorder_window(plan.reorder,
-                                                           commit=False)
+                summary["collapsed"] += self.collapse_duplicate(
+                    gid, keep_number=keep_by_gid.get(gid), commit=False)
+            # sequence realignment (PRD §13 — "repair the entire affected
+            # suffix"): explicit (game_id, absolute sequence_no) pairs;
+            # legacy plans fall back to reorder_window.
+            if plan.renumber:
+                for gid, seq in plan.renumber:
+                    cur = self.conn.execute(
+                        "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
+                        "WHERE game_id=?",
+                        (seq, now_iso(), gid),
+                    )
+                    summary["reordered"] += cur.rowcount
+            elif plan.reorder:
+                summary["reordered"] = self.reorder_window(
+                    plan.reorder, start=plan.reorder_start, commit=False)
+            # extras are NEVER deleted (PRD: no data destruction) — only
+            # flagged for the incident panel; they age out of the window.
+            summary["extras_flagged"] = len(plan.extras)
             if verify_fn is not None:
                 verify_fn(conn)
 

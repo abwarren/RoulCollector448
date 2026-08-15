@@ -50,6 +50,7 @@ def test_backfill_missing(db):
     assert row["status"] == "REPAIRED"
     assert row["confidence"] == 1.0
     assert row["source"] == "backfilled"
+    assert row["dedup_key"] == "gid:g99"
 
 
 def test_backfill_requires_game_id(db):
@@ -155,7 +156,7 @@ def test_apply_plan_backfills_and_corrects(db):
     plan = RepairPlan(
         missing=[HistoryRecord(game_id="c", number=3)],
         corrections=[("b", 2, 9)],     # remote says b=9
-        window_achieved=3, authoritative=True,
+        window_achieved=3, authoritative=True, repairable=True,
     )
     r = Repairer(db)
     summary = r.apply_plan(plan)
@@ -176,6 +177,120 @@ def test_apply_plan_refuses_without_authority(db):
     assert _count(db, "c") == 0   # nothing applied
 
 
+def test_apply_plan_refuses_without_identity(db):
+    """Signal C identity gate: authoritative but number-only history (DOM
+    text) must NOT drive repairs — identity is never manufactured (PRD §5)."""
+    plan = RepairPlan(
+        missing=[HistoryRecord(game_id=None, number=3)],
+        window_achieved=2, authoritative=True, repairable=False,
+    )
+    with pytest.raises(ValueError, match="identity"):
+        Repairer(db).apply_plan(plan)
+    assert db.execute("SELECT COUNT(*) FROM roulette_spins").fetchone()[0] == 0
+
+
+def test_apply_plan_insertion_shift(tmp_path):
+    """PRD §13 end-to-end — the exact example:
+
+    Local:  1021:7 1022:4 1023:19 1024:32 1025:8   (g1024 missed)
+    Remote: 1021:7 1022:4 1023:19 1024:17 1025:32 1026:8
+
+    The repair inserts 17 at position 1024 and renumbers the ENTIRE affected
+    suffix (32 -> 1025, 8 -> 1026) — no records lost, sequence restored.
+    """
+    import sqlite3
+    from collector import schema
+    from collector.repairer import Repairer
+    from collector.reconciler import HistoryRecord, RepairPlan
+
+    conn = sqlite3.connect(tmp_path / "shift.db")
+    conn.row_factory = sqlite3.Row
+    schema.ensure_schema(conn)
+    # local rows (g1024 never captured): 7,4,19,32,8 at sequences 1..5
+    REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+    for i, (gid, num, ts) in enumerate([
+            ("g1021", 7, "t1"), ("g1022", 4, "t2"), ("g1023", 19, "t3"),
+            ("g1025", 32, "t4"), ("g1026", 8, "t5")], start=1):
+        color = "Green" if num == 0 else ("Red" if num in REDS else "Black")
+        conn.execute(
+            "INSERT INTO roulette_spins (number, description, color, game_id, "
+            "server_ts, captured_at, sequence_no) VALUES (?,?,?,?,?,?,?)",
+            (num, f"{num} {color}", color, gid, ts, ts, i),
+        )
+    conn.commit()
+
+    plan = RepairPlan(
+        missing=[HistoryRecord(game_id="g1024", number=17, server_ts="t4")],
+        missing_seq={"g1024": 4},
+        renumber=[("g1025", 5), ("g1026", 6)],
+        window_achieved=6, authoritative=True, repairable=True,
+    )
+    summary = Repairer(conn).apply_plan(plan)
+    assert summary["backfilled"] == 1
+    assert summary["reordered"] == 2
+
+    got = conn.execute(
+        "SELECT game_id, number, sequence_no FROM roulette_spins "
+        "ORDER BY sequence_no"
+    ).fetchall()
+    assert [(r["game_id"], r["number"], r["sequence_no"]) for r in got] == [
+        ("g1021", 7, 1), ("g1022", 4, 2), ("g1023", 19, 3),
+        ("g1024", 17, 4), ("g1025", 32, 5), ("g1026", 8, 6),
+    ]
+    # backfilled spin carries the repair provenance
+    row = conn.execute(
+        "SELECT status, source FROM roulette_spins WHERE game_id='g1024'"
+    ).fetchone()
+    assert row["status"] == "REPAIRED" and row["source"] == "backfilled"
+    conn.close()
+
+
+def test_apply_plan_duplicate_collapse(tmp_path):
+    """PRD §16 end-to-end: a duplicate game_id (same + conflicting values)
+    is collapsed to ONE canonical row, keeping the authoritative value."""
+    import sqlite3
+    from collector import schema
+    from collector.repairer import Repairer
+    from collector.reconciler import HistoryRecord, RepairPlan
+
+    conn = sqlite3.connect(tmp_path / "dup.db")
+    conn.row_factory = sqlite3.Row
+    schema.ensure_schema(conn)
+    # malformed legacy table WITHOUT unique game_id
+    conn.execute("DROP TABLE roulette_spins")
+    conn.execute(
+        """CREATE TABLE roulette_spins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL,
+            description TEXT NOT NULL, color TEXT NOT NULL,
+            game_id TEXT NOT NULL, server_ts TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
+    )
+    schema.ensure_schema(conn)
+    REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+    for gid, num in [("GAME123", 17), ("GAME123", 17), ("g2", 2)]:
+        c = "Green" if num == 0 else ("Red" if num in REDS else "Black")
+        conn.execute(
+            "INSERT INTO roulette_spins (number, description, color, game_id, "
+            "server_ts, captured_at) VALUES (?,?,?,?,?,?)",
+            (num, f"{num} {c}", c, gid, f"t{num}", f"t{num}"),
+        )
+    conn.commit()
+
+    plan = RepairPlan(
+        duplicates=["GAME123"], window_achieved=2,
+        authoritative=True, repairable=True,
+    )
+    summary = Repairer(conn).apply_plan(plan)
+    assert summary["collapsed"] == 1
+
+    rows = conn.execute(
+        "SELECT game_id, number, COUNT(*) n FROM roulette_spins GROUP BY game_id"
+    ).fetchall()
+    assert dict((r["game_id"], r["n"]) for r in rows) == {"GAME123": 1, "g2": 1}
+    conn.close()
+
+
 def test_apply_plan_rolls_back_on_verify_failure(db):
     """PRD §33: if verify fails, the ENTIRE repair rolls back — no partial
     repair of a sequence."""
@@ -183,7 +298,7 @@ def test_apply_plan_rolls_back_on_verify_failure(db):
     plan = RepairPlan(
         missing=[HistoryRecord(game_id="b", number=2)],
         corrections=[("a", 1, 7)],
-        window_achieved=2, authoritative=True,
+        window_achieved=2, authoritative=True, repairable=True,
     )
     r = Repairer(db)
 
@@ -203,7 +318,7 @@ def test_apply_plan_verifies_ok(db):
     _spin(db, "a", 1)
     plan = RepairPlan(
         missing=[HistoryRecord(game_id="b", number=2)],
-        window_achieved=2, authoritative=True,
+        window_achieved=2, authoritative=True, repairable=True,
     )
     r = Repairer(db)
     seen = {}

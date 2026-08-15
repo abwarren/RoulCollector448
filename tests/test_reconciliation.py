@@ -13,7 +13,9 @@ import pytest
 from collector.reconciler import (
     HistoryProvider,
     HistoryRecord,
+    RepairPlan,
     compare_windows,
+    duplicate_incidents,
     normalize_record,
     reconcile,
 )
@@ -68,11 +70,58 @@ def test_wrong_value_then_alignment():
 
 
 def test_conflicting_duplicate_detected():
-    """Same game_id, different number -> CONFLICT, never silently overwrite."""
+    """PRD §16: same game_id, different number -> CONFLICT (CRITICAL), never
+    silently overwrite. Canonical UNIQUE normally prevents this, so it's the
+    legacy/malformed-data scenario."""
     local = [canon("g", 17), canon("b", 2), canon("g", 23)]  # dup g with different number
     remote = [rem("g", 17), rem("b", 2)]
     plan = compare_windows(local, remote)
     assert "g" in plan.duplicates
+    assert plan.duplicate_kinds["g"] == "CONFLICT"
+    incs = duplicate_incidents(plan)
+    assert incs and incs[0]["kind"] == "CONFLICT"
+    assert incs[0]["severity"] == "CRITICAL"
+
+
+def test_identical_duplicate_detected():
+    """PRD §16: game_id + number + timestamp ALL identical -> EXACT duplicate
+    (WARNING), collapsible."""
+    local = [canon("g", 17), canon("g", 17), canon("b", 2)]  # g twice, same everything
+    remote = [rem("g", 17), rem("b", 2)]
+    plan = compare_windows(local, remote)
+    assert "g" in plan.duplicates
+    assert plan.duplicate_kinds["g"] == "EXACT"
+    incs = duplicate_incidents(plan)
+    assert incs and incs[0]["severity"] == "WARNING"
+
+
+def test_ts_mismatch_duplicate():
+    """Same game_id AND number but DIFFERENT server_ts -> TS_MISMATCH (the
+    identity is duplicated with an inconsistent timestamp — flagged, never
+    silently resolved)."""
+    local = [canon("g", 17, "t1"), canon("g", 17, "t2"), canon("b", 2)]
+    remote = [rem("g", 17), rem("b", 2)]
+    plan = compare_windows(local, remote)
+    assert "g" in plan.duplicates
+    assert plan.duplicate_kinds["g"] == "TS_MISMATCH"
+    incs = duplicate_incidents(plan)
+    assert incs and incs[0]["severity"] == "WARNING"
+
+
+def test_duplicate_incidents_pure():
+    """duplicate_incidents is deterministic and never raises on an empty plan."""
+    assert duplicate_incidents(RepairPlan()) == []
+
+
+def test_duplicate_with_authority_corrects_both():
+    """A duplicate game_id where remote says a DIFFERENT number — both local
+    rows get corrections (the duplicate detector and value corrections
+    coexist; collapse + correct is the full §16 repair)."""
+    local = [canon("g", 17), canon("g", 17), canon("b", 2)]
+    remote = [rem("g", 23), rem("b", 2)]  # authoritative: g=23
+    plan = compare_windows(local, remote)
+    assert "g" in plan.duplicates
+    assert ("g", 17, 23) in plan.corrections
 
 
 def test_no_authority_unverified():

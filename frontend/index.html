@@ -53,6 +53,26 @@
     <div id="auditBody" class="audit-body"></div>
   </section>
 
+  <section id="integrityPanel" class="panel">
+    <h3>Data integrity <span class="sub">self-healing pipeline</span></h3>
+    <div id="integrityBody" class="audit-body">
+      <div class="audit-row">
+        <div><span class="kv">verified window</span> <b id="intVerified">—</b> · <span id="intScore" class="kv"></span></div>
+        <div><span class="kv">last reconciliation</span> <span id="intLastRecon">—</span></div>
+      </div>
+      <div class="audit-row">
+        <div><span class="kv">last repair</span> <span id="intLastRepair">—</span></div>
+        <div><span class="kv">open incidents</span> <b id="intOpen">—</b></div>
+      </div>
+      <div class="audit-row" id="intComponents"></div>
+    </div>
+  </section>
+
+  <section id="incidentPanel" class="panel">
+    <h3>Incidents <span class="sub">last 20 · root cause</span></h3>
+    <div class="table-wrap incident-scroll"><table id="incidentTable"></table></div>
+  </section>
+
   <div class="panels">
     <div class="panel">
       <h3>Z-scores <span class="sub">all-time</span></h3>

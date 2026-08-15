@@ -41,15 +41,39 @@ Credentials are read from env vars SUNBET_USER/SUNBET_PASS, falling back to
 repo is public.
 """
 import json, re, time, os, sys, asyncio, sqlite3
+from collections import deque
 from playwright.async_api import async_playwright
 from datetime import datetime
 
 # ---- config ----
-GAME_URL = "https://www.sunbet.co.za/slots-games/launch-game/?gameId=997043039547559967&openTable=448"
-STATE_FILE = "/home/wa/roulette2_spins.json"
-CSV_FILE = "/home/wa/roulette2_spins.csv"
-DB_FILE = "/home/wa/roulette2_spins.db"
-CRED_FILE = os.path.expanduser("~/.config/roulette2_collector.env")
+# All paths live under RC_DATA_DIR (default /home/wa on Linux, ~/.roulette2 on
+# Windows). Individual overrides: RC_DB_PATH, RC_STATE_FILE, RC_CSV_FILE,
+# RC_CRED_FILE, RC_HEARTBEAT_FILE, RC_GAME_URL.
+def _data_dir() -> str:
+    env = os.environ.get("RC_DATA_DIR")
+    if env:
+        return env
+    if os.name == "nt":
+        return os.path.join(os.path.expanduser("~"), ".roulette2")
+    return "/home/wa"
+
+
+_DATA_DIR = _data_dir()
+os.makedirs(_DATA_DIR, exist_ok=True)
+
+GAME_URL = os.environ.get(
+    "RC_GAME_URL",
+    "https://www.sunbet.co.za/slots-games/launch-game/?gameId=997043039547559967&openTable=448",
+)
+STATE_FILE = os.environ.get("RC_STATE_FILE", os.path.join(_DATA_DIR, "roulette2_spins.json"))
+CSV_FILE = os.environ.get("RC_CSV_FILE", os.path.join(_DATA_DIR, "roulette2_spins.csv"))
+DB_FILE = os.environ.get("RC_DB_PATH", os.path.join(_DATA_DIR, "roulette2_spins.db"))
+CRED_FILE = os.environ.get(
+    "RC_CRED_FILE", os.path.join(_DATA_DIR, "roulette2_collector.env")
+)
+HEARTBEAT_FILE = os.environ.get(
+    "RC_HEARTBEAT_FILE", os.path.join(_DATA_DIR, "roulette2_heartbeat.json")
+)
 
 # ---- integrity layer (v3) — additive, never blocks capture ----
 os.environ.setdefault("RC_DB_PATH", DB_FILE)
@@ -60,11 +84,12 @@ except ImportError:                      # deployed flat script on the box
     import observer, schema, reconciler, history, validator, repairer  # type: ignore
     import integrity_state  # type: ignore
 
-# Reconcile cadence (PRD §31): fast per-spin validation, lightweight rolling
-# reconciliation every 45s, full effective-window audit every 5 min. The
-# stall detector stays process/realtime; reconciliation is data correctness.
-RECONCILE_LIGHT_S = 45
-RECONCILE_FULL_S = 300
+# Reconcile cadence (PRD §31, §13): per-spin validation is instant; the
+# rolling-window reconciliation (load local 500, obtain authoritative 500,
+# match by identity, compare sequence/order, repair the affected suffix)
+# runs every 30s (light) and 60s (full 500-window audit).
+RECONCILE_LIGHT_S = 30
+RECONCILE_FULL_S = 60
 RECONCILE_WINDOW = 500
 
 STALL_THRESHOLD_S = 120   # matches dashboard GAP_S; max legit cadence ~57s
@@ -121,38 +146,236 @@ def save_spins(spins):
             f.write(f"{s.get('number','')},{desc},{s.get('gameId','')},{s.get('timestamp','')},{s.get('captured_at','')}\n")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.executescript('''
-        CREATE TABLE IF NOT EXISTS roulette_spins (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            number      INTEGER NOT NULL,
-            description TEXT NOT NULL,
-            color       TEXT NOT NULL CHECK(color IN ('Red', 'Black', 'Green')),
-            game_id     TEXT NOT NULL UNIQUE,
-            server_ts   TEXT NOT NULL,
-            captured_at TEXT NOT NULL,
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_spin_number ON roulette_spins(number);
-        CREATE INDEX IF NOT EXISTS idx_spin_color  ON roulette_spins(color);
-        CREATE INDEX IF NOT EXISTS idx_spin_ts     ON roulette_spins(server_ts);
-    ''')
+    # Canonical table via the integrity schema (additive/idempotent) so the
+    # storage-level dedup_key column + unique index exist before inserts.
+    schema.ensure_schema(conn)
     inserted = 0
+    no_identity = 0
+    now_iso_ts = datetime.now().isoformat()
     for s in spins:
         desc = s.get("description", "")
         color = num_to_color(s['number']) if isinstance(s['number'], int) else "Green"
+        # Storage-level identity (PRD): game_id when valid, else ts+number.
+        # None -> cannot dedup -> never inserted canonically (surfaced via
+        # integrity event, kept in the JSON state file).
+        dk = schema.canonical_dedup_key(
+            s.get("gameId"), s.get("timestamp"), s.get("number"))
+        if dk is None:
+            no_identity += 1
+            continue
+        # PRD §18: three timestamps — server_ts (from the source),
+        # observed_at (when the collector saw it — already captured_at),
+        # committed_at (when THIS save commits it). capture_latency and
+        # commit_latency are derived and stored for the latency tracker.
+        server_ts = s.get("timestamp", "")
+        observed_at = s.get("captured_at", "")
+        committed_at = s.get("committed_at") or now_iso_ts
+        capture_latency = _latency_seconds(server_ts, observed_at)
+        commit_latency = _latency_seconds(observed_at, committed_at)
         try:
             c.execute('''
                 INSERT OR IGNORE INTO roulette_spins
-                    (number, description, color, game_id, server_ts, captured_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (int(s['number']), desc, color, s['gameId'], s.get('timestamp',''), s.get('captured_at','')))
+                    (number, description, color, game_id, server_ts,
+                     captured_at, dedup_key, observed_at, committed_at,
+                     capture_latency, commit_latency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (int(s['number']), desc, color, s.get('gameId', ''),
+                  server_ts, observed_at, dk, observed_at, committed_at,
+                  capture_latency, commit_latency))
             if c.rowcount:
                 inserted += 1
         except Exception:
             pass
+    # Canonical ordering (PRD §11): assign sequence_no for rows the integrity
+    # layer never touched (id order == canonical append order for new rows;
+    # repair reorders only adjust rows that already have a sequence_no).
+    try:
+        c.execute("UPDATE roulette_spins SET sequence_no = id WHERE sequence_no IS NULL")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
-    print(f"  Saved {len(spins)} spins to disk (+{inserted} new to DB)")
+    if no_identity:
+        try:
+            observer.log_event(
+                schema.connect(), "SPIN_NO_IDENTITY", severity="WARNING",
+                details={"count": no_identity,
+                         "note": "no game_id/ts+number identity — kept as "
+                                 "observations, not canonical"},
+                root_cause="DATA",
+            )
+        except Exception:
+            pass
+    print(f"  Saved {len(spins)} spins to disk (+{inserted} new to DB, "
+          f"{no_identity} without identity)")
+
+
+# Capture-latency early-warning (PRD §19): an increasing P99 is a
+# degradation signal BEFORE an outright stall. Defaults are generous for a
+# real table (~sub-second capture); the collector's own cadence dominates.
+LATENCY_P99_ALERT_S = 10.0
+
+LATENCY_ALERT_COOLDOWN_S = 300  # don't spam the same alert
+
+
+def _latency_seconds(a, b) -> float | None:
+    """Seconds from ISO timestamp a to b; None if unparseable/negative."""
+    try:
+        import datetime as _dt
+        pa = _dt.datetime.fromisoformat(str(a).replace("Z", "+00:00"))
+        pb = _dt.datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+        if pa.tzinfo is None:
+            pa = pa.replace(tzinfo=_dt.timezone.utc)
+        if pb.tzinfo is None:
+            pb = pb.replace(tzinfo=_dt.timezone.utc)
+        d = (pb - pa).total_seconds()
+        return d if d >= 0 else None
+    except Exception:
+        return None
+
+
+def _spin_color(spin):
+    """Color as OBSERVED by the source (from description text) when present,
+    else derived from the number — never a false 'color missing' flag for
+    captures that simply don't carry a color field."""
+    d = spin.get("description") or ""
+    for c in ("Red", "Black", "Green"):
+        if c in d:
+            return c
+    n = spin.get("number")
+    return num_to_color(n) if isinstance(n, int) else None
+
+
+def check_observed_contradiction(spin):
+    """PRD §17: flag a source observation whose color CONTRADICTS its number
+    (e.g. '17 Red') instead of silently normalizing it. Returns a problem
+    string or None. Never raises."""
+    try:
+        n = spin.get("number")
+        if not isinstance(n, int):
+            return None
+        if not 0 <= n <= 36:
+            return None
+        obs = _spin_color(spin)
+        if obs is None:
+            return None
+        expected = num_to_color(n)
+        if obs != expected:
+            return f"color contradiction: source observed {obs}, number {n} is {expected}"
+    except Exception:
+        return None
+    return None
+
+
+def validate_new_spin(state, spin, prev_spin):
+    """Per-spin fast validation (PRD §31 — the fastest interval). Runs
+    validate_spin on every new canonical spin; SUSPECT/INVALID problems are
+    logged as integrity events (never silently passed). Feeds the capture
+    latency tracker (PRD §19). Never blocks capture, never raises."""
+    # PRD §19: feed the per-session capture-latency tracker on every spin.
+    try:
+        tr = state.get("latency_tracker")
+        if tr is not None:
+            tr.add(spin.get("timestamp"), spin.get("captured_at"),
+                   spin.get("committed_at"))
+    except Exception:
+        pass
+    try:
+        res = validator.validate_spin(
+            number=spin.get("number"),
+            color=_spin_color(spin),
+            game_id=spin.get("gameId"),
+            server_ts=spin.get("timestamp"),
+            observed_at=spin.get("captured_at"),
+            committed_at=spin.get("committed_at"),
+            prev_ts=prev_spin.get("timestamp") if prev_spin else None,
+        )
+    except Exception:
+        return
+    problems = res.get("problems") or []
+    # PRD §17: source-observed color contradiction — flagged explicitly,
+    # never normalized silently (the save path derives color from number,
+    # but the contradiction must be an integrity event first).
+    contra = check_observed_contradiction(spin)
+    if contra:
+        problems = problems + [contra]
+        res["status"] = "INVALID" if res.get("status") == "INVALID" else "SUSPECT"
+    if not problems:
+        return
+    sev = "CRITICAL" if res.get("status") == "INVALID" else "WARNING"
+    try:
+        observer.log_event(
+            schema.connect(),
+            "SPIN_INVALID" if sev == "CRITICAL" else "SPIN_SUSPECT",
+            severity=sev,
+            game_id=spin.get("gameId"),
+            details={"problems": problems, "number": spin.get("number")},
+            root_cause="DATA",
+        )
+    except Exception:
+        pass
+    state["validation_issues"] = state.get("validation_issues", 0) + 1
+
+
+def flush_history_obs(state):
+    """Persist buffered history observations (source='history') — module
+    level so the WS frame handler's closure can reach it. History frames
+    are rare (snapshots), so flush immediately; never blocks capture,
+    never raises."""
+    if not state.get("history_obs") or state.get("session_id") is None:
+        state["history_obs"] = []
+        return 0
+    try:
+        sconn = schema.connect()
+        n = observer.flush_observations(sconn, state["history_obs"])
+        sconn.close()
+        return n
+    except Exception as e:
+        print(f"  [INTEGRITY] history obs flush failed: {e}")
+        state["history_obs"] = []
+        return 0
+
+
+def write_heartbeat(state, spins):
+    """Write the liveness heartbeat consumed by the dashboard.
+
+    On Linux the dashboard tails journald; on Windows there is no journald,
+    so this file IS the liveness signal plus the live-spin overlay source
+    (PRD §36 collector-health row). Atomic replace, never raises.
+    """
+    recent = []
+    base = len(spins)
+    for i, s in enumerate(spins[-40:], start=1):
+        n = s.get("number")
+        color = s.get("color")
+        if color is None and isinstance(n, int):
+            color = num_to_color(n)
+        recent.append({
+            "time": str(s.get("captured_at", ""))[11:19],
+            "n": base - len(spins[-40:]) + i,  # position in dataset (matches #N)
+            "number": int(n) if isinstance(n, int) else n,
+            "color": color,
+        })
+    hb = {
+        "at": datetime.now().isoformat(),
+        "status": state.get("hb_status", "RUNNING"),
+        "spins_count": len(spins),
+        "ws_captured": state.get("ws_captured", 0),
+        "validation_issues": state.get("validation_issues", 0),
+        # PRD §19: rolling capture/commit latency percentiles — a rising
+        # P99 is the early-warning that the collector is degrading.
+        "latency": (state.get("latency_tracker") or validator.LatencyTracker()).stats(),
+        "session_id": state.get("session_id"),
+        "last_spin": spins[-1] if spins else None,
+        "recent_spins": recent,
+    }
+    tmp = HEARTBEAT_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(hb, f)
+        os.replace(tmp, HEARTBEAT_FILE)
+    except Exception as e:
+        print(f"  [HEARTBEAT] write failed: {e}")
 
 
 # Refresh button selectors in the Evolution game UI (checked across all frames).
@@ -258,6 +481,30 @@ def make_on_ws_frame(state):
                 continue
             try:
                 data = json.loads(payload)
+                # Signal C: buffer history-shaped frames (join snapshot /
+                # periodic recent-results lists) — they carry game_id +
+                # server_ts, the identity the reconciler needs for repair
+                # authority. Never blocks capture; best-effort only.
+                try:
+                    recs = history.parse_history_frame(data)
+                    if recs:
+                        s["ws_history"].extend(recs)
+                        # persist as observations (source='history') so the
+                        # authority survives restarts; content-hash dedup
+                        # keeps overlapping snapshots from duplicating rows
+                        for rec in recs:
+                            s["history_obs"].append({
+                                "source": "history",
+                                "session_id": s["session_id"],
+                                "game_id": rec.game_id,
+                                "number": rec.number,
+                                "server_ts": rec.server_ts,
+                                "raw_payload": payload[:500],
+                                "sequence_hint": rec.order_hint,
+                            })
+                        flush_history_obs(s)
+                except Exception:
+                    pass
                 # Auto Roulette message format:
                 # {"args":{"code":1,"description":"1 Red","gameId":"...","timestamp":"..."}}
                 args = data if isinstance(data, dict) and "code" in data else data.get("args", data)
@@ -294,8 +541,36 @@ def make_on_ws_frame(state):
                     })
                     s["new_since_save"] += 1
                     s["ws_captured"] += 1
+                    s["hb_status"] = "RUNNING"
                     total = len(s["spins"])
                     print(f"  [{datetime.now().strftime('%H:%M:%S')}] #{total}: {desc_full}")
+                    # Per-spin fast validation (PRD §31) — SUSPECT/INVALID
+                    # logged as integrity events; never blocks capture.
+                    prev_spin = s["spins"][-2] if len(s["spins"]) >= 2 else None
+                    validate_new_spin(s, s["spins"][-1], prev_spin)
+                    # PRD §19: P99 capture-latency breach -> integrity event
+                    # (cooldown-gated so it doesn't spam every 5s tick).
+                    try:
+                        tr = s.get("latency_tracker")
+                        if tr is not None:
+                            st = tr.stats()
+                            p99 = st.get("p99")
+                            now_t = time.time()
+                            if (p99 is not None and p99 > LATENCY_P99_ALERT_S
+                                    and now_t - s.get("latency_last_alert", 0)
+                                    > LATENCY_ALERT_COOLDOWN_S):
+                                s["latency_last_alert"] = now_t
+                                observer.log_event(
+                                    schema.connect(), "LATENCY_HIGH",
+                                    severity="WARNING",
+                                    details={"p99_s": round(p99, 2),
+                                             "p95_s": st.get("p95"),
+                                             "max_s": st.get("max")},
+                                    root_cause="PERFORMANCE",
+                                )
+                    except Exception:
+                        pass
+                    write_heartbeat(s, s["spins"])
 
                     if s["new_since_save"] >= 25:
                         save_spins(s["spins"])
@@ -367,7 +642,19 @@ async def collect_loop():
 
     state = {"spins": spins, "last_game_id": last_game_id,
              "new_since_save": 0, "ws_captured": 0,
-             "obs_buffer": [], "session_ok": False}
+             "obs_buffer": [], "session_ok": False,
+             # PRD §19: per-session capture-latency tracker (fed on every
+             # spin; stats ride the heartbeat; P99 breach alerts).
+             "latency_tracker": validator.LatencyTracker(),
+             "latency_last_alert": 0.0,
+             # Signal C: ring buffer of history-shaped WS frames (join
+             # snapshot / periodic recent-results payloads). These carry
+             # game_id + server_ts — the identity that gives the reconciler
+             # repair authority (vs DOM text, numbers only). The records are
+             # ALSO persisted to spin_observations (source='history') so the
+             # authority survives restarts (DBHistoryProvider).
+             "ws_history": deque(maxlen=600),
+             "history_obs": []}
 
     # v3: integrity layer — schema + session. Failure degrades gracefully:
     # the canonical capture path continues without the audit trail.
@@ -441,6 +728,7 @@ async def collect_loop():
         async def recover(base_count):
             """Recovery ladder. Returns True if a new spin arrived."""
             nonlocal browser, context, page
+            state["hb_status"] = "RECOVERING"
             print("  [RECOVERY] rung 0/4: passive wait — stream often self-heals")
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after passive wait"):
                 return True
@@ -510,17 +798,49 @@ async def collect_loop():
                     spins = list(state["spins"])[-RECONCILE_WINDOW:]
                     if not spins:
                         continue
-                    provider = history.DOMHistoryProvider(page, max_window=RECONCILE_WINDOW)
-                    remote = await provider.fetch_recent_history_async(limit=RECONCILE_WINDOW)
+                    # Signal C provider selection: WS-buffered history first
+                    # (freshest, identity-bearing -> repair authority); then
+                    # the durable DB history (survives restarts); DOM text
+                    # last (numbers only -> detection only).
+                    ws_recs = list(state.get("ws_history") or [])[-RECONCILE_WINDOW:]
+                    if ws_recs:
+                        provider = history.WSHistoryProvider(ws_recs)
+                        remote = provider.fetch_recent_history(limit=RECONCILE_WINDOW)
+                        history_source = "ws"
+                    else:
+                        try:
+                            dbrecs = history.DBHistoryProvider().fetch_recent_history(
+                                limit=RECONCILE_WINDOW)
+                        except Exception:
+                            dbrecs = []
+                        if dbrecs:
+                            remote = dbrecs
+                            history_source = "db-history"
+                        else:
+                            provider = history.DOMHistoryProvider(page, max_window=RECONCILE_WINDOW)
+                            remote = await provider.fetch_recent_history_async(limit=RECONCILE_WINDOW)
+                            history_source = "dom"
                     local = [{"game_id": s.get("gameId"), "number": s["number"],
                               "server_ts": s.get("timestamp")} for s in spins]
                     result = reconciler.reconcile(local, history.StaticHistoryProvider(remote),
                                                   window=RECONCILE_WINDOW)
-                    # Phase 4: apply deterministic repairs when the authority
-                    # is solid (PRD §24). Reconcile -> repair -> VERIFY: the
-                    # repair is only success once re-validation passes.
+                    # Phase 4: apply deterministic repairs only when the
+                    # authority is solid AND carries identity (PRD §24, §5 —
+                    # never manufacture identity from number-only history).
+                    # Reconcile -> repair -> VERIFY: the repair is only
+                    # success once re-validation passes.
                     repaired = None
-                    if result.plan.authoritative and not result.ok:
+                    if result.plan.repairable and not result.ok:
+                        # PRD §16: surface duplicate incidents — CONFLICT is
+                        # CRITICAL (never silent), EXACT/TS_MISMATCH WARNING.
+                        for inc in reconciler.duplicate_incidents(result.plan):
+                            observer.log_event(
+                                schema.connect(), "DUPLICATE",
+                                severity=inc["severity"],
+                                game_id=inc["game_id"],
+                                details={"kind": inc["kind"]},
+                                root_cause="DATA",
+                            )
                         try:
                             sconn = schema.connect()
                             rep = repairer.Repairer(sconn)
@@ -552,6 +872,10 @@ async def collect_loop():
                             "missing": result.missing_count,
                             "corrections": result.correction_count,
                             "duplicates": result.duplicate_count,
+                            "reordered": result.reorder_count,
+                            "extras": result.extra_count,
+                            "repairable": result.repairable,
+                            "history_source": history_source,
                             "authoritative": result.plan.authoritative,
                             "message": result.message,
                             "repaired": repaired,
@@ -610,12 +934,20 @@ async def collect_loop():
                 else:
                     sec_since_last = elapsed
                 if sec_since_last > STALL_THRESHOLD_S and (spins or elapsed > 240):
+                    state["hb_status"] = "STALLED"
+                    write_heartbeat(state, spins)
                     print(f"  STALLED — {sec_since_last:.0f}s since last spin. Running recovery ladder...")
                     ok = await recover(len(spins))
                     if not ok:
+                        state["hb_status"] = "ABANDONED"
+                        write_heartbeat(state, spins)
                         print("  Recovery ladder failed — stream still silent after full restart. Abandoning session.")
                         state["session_ok"] = False
                         break
+
+                # Liveness heartbeat every tick (Windows dashboard liveness
+                # source; Linux journald remains authoritative there).
+                write_heartbeat(state, spins)
 
                 # Status every 60s
                 if int(elapsed) % 60 < 6:

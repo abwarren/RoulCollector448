@@ -75,3 +75,44 @@ http://127.0.0.1:4480
 API is at `:4480`; static frontend served from the same process.
 Test suite: `.venv/bin/python -m pytest tests/ -q` (uses a fixture DB).
 Live smoke test: `.venv/bin/python scripts/verify_live.py` (hits the running API).
+
+## Windows (this machine)
+
+The pipeline runs natively on Windows (git-bash + Python 3.11+). All paths are
+env-overridable; the default data dir is `%USERPROFILE%\.roulette2`
+(`RC_DATA_DIR` to change; `RC_DB_PATH` / `RC_STATE_FILE` / `RC_CSV_FILE` /
+`RC_CRED_FILE` / `RC_HEARTBEAT_FILE` / `RC_GAME_URL` override individually).
+
+Setup:
+
+```bat
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m playwright install chromium
+```
+
+Credentials: `SUNBET_USER` / `SUNBET_PASS` env vars, or
+`%USERPROFILE%/.roulette2/roulette2_collector.env` (KEY=VALUE, protect the file).
+
+Run (double-click or via Task Scheduler):
+
+- `start_dashboard.bat` — API + UI on http://127.0.0.1:4480
+- `start_collector.bat` — 24/7 capture loop (logs to `%USERPROFILE%\.roulette2\*.log`)
+- `register_tasks.ps1` — registers both as logon scheduled tasks (the systemd
+  equivalent); rerun with `-Remove` to uninstall.
+
+Liveness on Windows: there is no journald, so the collector writes
+`roulette2_heartbeat.json` every ~5s (status, last spins, counter) and the
+dashboard reads it (`/api/health` reports `liveness_source: heartbeat`).
+The Linux journald path is unchanged (`backend/liveness.py` picks per-OS).
+
+Data-integrity endpoints (PRD §36-37):
+
+- `GET /api/integrity` — verified window, health score/state, last
+  reconciliation + repair, open incidents, per-component health
+- `GET /api/incidents` — last N incidents with root-cause classification (§40)
+
+Demo dataset for local dev: `.venv\Scripts\python scripts\build_demo_db.py`
+then `set RC_DB_PATH=%USERPROFILE%\.roulette2\demo.db` before starting the
+dashboard (creates 2200 spins + integrity events + a heartbeat).
+

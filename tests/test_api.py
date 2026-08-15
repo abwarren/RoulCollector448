@@ -247,7 +247,7 @@ def test_audit_live_merge():
 def test_session_marker_cut():
     # Pre-restart journald spin lines share #N ranges with the live session
     # (counter = len(spins) at resume). _after_last_session must drop them.
-    from backend.app import _after_last_session
+    from backend.liveness import _after_last_session
 
     lines = (
         "  [14:57:06] #17828: 10 Black\n"

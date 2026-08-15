@@ -31,6 +31,7 @@ CADENCE_GAP = 120           # confirmed gap (matches collector STALL_THRESHOLD_S
 
 MAX_FUTURE_SKEW_S = 300    # server_ts more than 5min in the future -> anomaly
 MAX_CAPTURE_LATENCY_S = 120  # server->collector latency beyond this is suspicious
+MAX_COMMIT_LATENCY_S = 300   # observed->committed beyond this is suspicious
 
 
 def num_to_color(number: int) -> str:
@@ -62,6 +63,23 @@ def check_number(number) -> list:
     return []
 
 
+MAX_GAME_ID_LEN = 128
+
+
+def check_game_id(game_id) -> list:
+    """Game-ID integrity (PRD §4, §17): a canonical row's identity must be a
+    non-empty, sane identifier. Empty/whitespace ids are the malformed case
+    the dedup_key layer guards against; flag, never silently fix."""
+    if game_id is None:
+        return ["game_id missing"]
+    gid = str(game_id).strip()
+    if not gid:
+        return ["game_id empty/whitespace"]
+    if len(gid) > MAX_GAME_ID_LEN:
+        return [f"game_id suspiciously long ({len(gid)} chars)"]
+    return []
+
+
 def check_color(number, color) -> list:
     if number is None or not isinstance(number, int):
         return []  # number check already flags it; skip color
@@ -75,8 +93,10 @@ def check_color(number, color) -> list:
     return []
 
 
-def check_timestamp(server_ts, observed_at=None) -> list:
-    """Impossible timestamp detection (PRD §18)."""
+def check_timestamp(server_ts, observed_at=None, committed_at=None) -> list:
+    """Impossible timestamp detection (PRD §18): three timestamps —
+    server_ts, observed_at, committed_at — with capture_latency
+    (server->observed) and commit_latency (observed->committed) derived."""
     probs = []
     st = _parse_ts(server_ts)
     if server_ts is not None and st is None:
@@ -98,6 +118,17 @@ def check_timestamp(server_ts, observed_at=None) -> list:
             lat = (ot - st).total_seconds()
             if lat > MAX_CAPTURE_LATENCY_S:
                 probs.append(f"capture latency {lat:.0f}s > {MAX_CAPTURE_LATENCY_S}s")
+    if committed_at:
+        ct = _parse_ts(committed_at)
+        ot = _parse_ts(observed_at) if observed_at else None
+        if ct is not None and ot is not None:
+            if ct.tzinfo is None:
+                ct = ct.replace(tzinfo=datetime.timezone.utc)
+            if ot.tzinfo is None:
+                ot = ot.replace(tzinfo=datetime.timezone.utc)
+            clat = (ct - ot).total_seconds()
+            if clat > MAX_COMMIT_LATENCY_S:
+                probs.append(f"commit latency {clat:.0f}s > {MAX_COMMIT_LATENCY_S}s")
     return probs
 
 
@@ -132,7 +163,7 @@ def cadence_class(delta_s: float) -> str:
 # Full-spin validation
 # ---------------------------------------------------------------------------
 def validate_spin(*, number=None, color=None, game_id=None, server_ts=None,
-                  observed_at=None, prev_ts=None) -> dict:
+                  observed_at=None, committed_at=None, prev_ts=None) -> dict:
     """Validate one spin. Returns {status, problems, details}.
 
     status: VALID | SUSPECT | INVALID
@@ -143,7 +174,8 @@ def validate_spin(*, number=None, color=None, game_id=None, server_ts=None,
     problems = []
     problems += check_number(number)
     problems += check_color(number, color)
-    problems += check_timestamp(server_ts, observed_at)
+    problems += check_game_id(game_id)
+    problems += check_timestamp(server_ts, observed_at, committed_at)
     problems += check_cadence(prev_ts, server_ts)
 
     has_invalid = any(
@@ -170,8 +202,9 @@ class LatencyTracker:
 
     def __init__(self, maxlen: int = 500):
         self._samples = deque(maxlen=maxlen)
+        self._commit_samples = deque(maxlen=maxlen)
 
-    def add(self, server_ts, observed_at=None) -> float | None:
+    def add(self, server_ts, observed_at=None, committed_at=None) -> float | None:
         st, ot = _parse_ts(server_ts), _parse_ts(observed_at)
         if st is None or ot is None:
             return None
@@ -183,12 +216,20 @@ class LatencyTracker:
         if lat < 0:
             return None
         self._samples.append(lat)
+        if committed_at:
+            ct = _parse_ts(committed_at)
+            if ct is not None:
+                if ct.tzinfo is None:
+                    ct = ct.replace(tzinfo=datetime.timezone.utc)
+                clat = (ct - ot).total_seconds()
+                if clat >= 0:
+                    self._commit_samples.append(clat)
         return lat
 
-    def _percentile(self, q: float) -> float | None:
-        if not self._samples:
+    def _percentile(self, q: float, samples) -> float | None:
+        if not samples:
             return None
-        s = sorted(self._samples)
+        s = sorted(samples)
         idx = min(len(s) - 1, math.ceil(q / 100 * len(s)) - 1)
         return s[max(0, idx)]
 
@@ -196,12 +237,18 @@ class LatencyTracker:
         def _r(v):
             return round(v, 3) if v is not None else None
         return {
-            "p50": _r(self._percentile(50)),
-            "p95": _r(self._percentile(95)),
-            "p99": _r(self._percentile(99)),
+            "p50": _r(self._percentile(50, self._samples)),
+            "p95": _r(self._percentile(95, self._samples)),
+            "p99": _r(self._percentile(99, self._samples)),
             "max": _r(max(self._samples)) if self._samples else None,
             "n": len(self._samples),
+            "commit_p50": _r(self._percentile(50, self._commit_samples)),
+            "commit_p95": _r(self._percentile(95, self._commit_samples)),
+            "commit_p99": _r(self._percentile(99, self._commit_samples)),
+            "commit_max": _r(max(self._commit_samples)) if self._commit_samples else None,
+            "commit_n": len(self._commit_samples),
         }
 
     def reset(self):
         self._samples.clear()
+        self._commit_samples.clear()

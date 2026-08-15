@@ -187,6 +187,17 @@ tbody tr.hl-row td { color: #b2ebf2; }
 .chart-title { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
 .chart { width: 100%; height: 130px; background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 4px; }
 
+/* integrity panel chips + incident table */
+.chip {
+  display: inline-block; padding: 2px 8px; margin-right: 6px;
+  border-radius: 10px; font-size: 11px; letter-spacing: 0.04em;
+}
+.chip-ok { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+.chip-bad { background: #fdecea; color: #c62828; border: 1px solid #ef9a9a; }
+.mono { font-variant-numeric: tabular-nums; }
+.incident-scroll { max-height: 260px; overflow-y: auto; }
+#incidentTable td { padding: 3px 8px; font-size: 12px; }
+
 /* transitions panel — white-theme heatmap + pair tables */
 .trans-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .chart.heatmap { height: auto; background: #ffffff; border-color: var(--border); }
