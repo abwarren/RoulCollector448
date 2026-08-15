@@ -54,9 +54,16 @@ CRED_FILE = os.path.expanduser("~/.config/roulette2_collector.env")
 # ---- integrity layer (v3) — additive, never blocks capture ----
 os.environ.setdefault("RC_DB_PATH", DB_FILE)
 try:                                     # repo layout (package context)
-    from . import observer, schema
+    from . import observer, schema, reconciler, history, validator
 except ImportError:                      # deployed flat script on the box
-    import observer, schema  # type: ignore
+    import observer, schema, reconciler, history, validator  # type: ignore
+
+# Reconcile cadence (PRD §31): fast per-spin validation, lightweight rolling
+# reconciliation every 45s, full effective-window audit every 5 min. The
+# stall detector stays process/realtime; reconciliation is data correctness.
+RECONCILE_LIGHT_S = 45
+RECONCILE_FULL_S = 300
+RECONCILE_WINDOW = 500
 
 STALL_THRESHOLD_S = 120   # matches dashboard GAP_S; max legit cadence ~57s
 RUNG_WAIT_S = 30          # wait for a new spin after rungs 0-2
@@ -472,6 +479,64 @@ async def collect_loop():
         last_spin_count = len(spins)
         dom_poll_count = 0
 
+        async def reconcile_task():
+            """PRD §31/§53 — the reconcile -> verify loop, running alongside
+            capture without ever blocking it (capture is non-blocking; this
+            task only reads `state["spins"]` and writes integrity_events).
+
+            Light pass every 45s, full window audit every 5 min. The DOM
+            history panel is the authoritative source; if it's unavailable
+            the window is UNVERIFIED (never guessed, PRD §5/§25). Results
+            land in integrity_events for the dashboard /api/integrity.
+            """
+            if state["session_id"] is None:
+                return
+            last_light = time.time()
+            last_full = 0.0
+            while True:
+                await asyncio.sleep(10)
+                now = time.time()
+                # light: 45s cadence; full: 300s cadence
+                if now - last_light < RECONCILE_LIGHT_S and now - last_full < RECONCILE_FULL_S:
+                    continue
+                is_full = (now - last_full) >= RECONCILE_FULL_S
+                try:
+                    spins = list(state["spins"])[-RECONCILE_WINDOW:]
+                    if not spins:
+                        continue
+                    provider = history.DOMHistoryProvider(page, max_window=RECONCILE_WINDOW)
+                    remote = await provider.fetch_recent_history_async(limit=RECONCILE_WINDOW)
+                    local = [{"game_id": s.get("gameId"), "number": s["number"],
+                              "server_ts": s.get("timestamp")} for s in spins]
+                    result = reconciler.reconcile(local, history.StaticHistoryProvider(remote),
+                                                  window=RECONCILE_WINDOW)
+                    sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
+                    observer.log_event(
+                        schema.connect(),
+                        "RECONCILIATION" if is_full else "RECONCILIATION_LIGHT",
+                        severity=sev,
+                        details={
+                            "ok": result.ok,
+                            "window": result.window,
+                            "window_achieved": result.plan.window_achieved,
+                            "missing": result.missing_count,
+                            "corrections": result.correction_count,
+                            "duplicates": result.duplicate_count,
+                            "authoritative": result.plan.authoritative,
+                            "message": result.message,
+                        },
+                    )
+                    if is_full:
+                        last_full = now
+                    last_light = now
+                except Exception as e:
+                    observer.log_event(schema.connect(), "RECONCILIATION",
+                                       severity="WARNING",
+                                       details={"error": str(e)},
+                                       root_cause="DATA_INTEGRITY")
+
+        task = asyncio.create_task(reconcile_task())
+
         def flush_obs(s):
             """Batch-persist buffered observations. Never raises — the
             canonical capture path must not depend on the audit trail."""
@@ -531,6 +596,7 @@ async def collect_loop():
             print(f"  Session ended after {hours:.1f}h — {len(spins)} spins total")
             state["session_ok"] = True
         finally:
+            task.cancel()
             # v3: flush observations + close the session (ENDED vs CRASHED)
             try:
                 if state["session_id"]:
