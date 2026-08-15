@@ -142,11 +142,103 @@ def health():
         conn.close()
 
 
+def rolling_verify(conn, window: int = 500) -> dict:
+    """PRD §26/§27 — the rolling-500 trust indicator (core trust signal).
+
+    Examines the latest `window` canonical spins (by canonical sequence:
+    sequence_no DESC, id tie-break; NULL sequences last). Column-aware: a
+    legacy table without status/sequence_no degrades gracefully (all rows
+    counted verified, ordering by id) instead of failing.
+
+    Returns the §26 counters plus `perfect` — the §27 definition:
+    no unexplained gaps, no duplicate game_ids, no conflicting ids
+    (same game_id, different number), no invalid numbers, nothing
+    UNVERIFIED. All counters are pure queries over the canonical table —
+    no inference, no repair.
+    """
+    cols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(roulette_spins)").fetchall()}
+    has_status = "status" in cols
+    has_seq = "sequence_no" in cols
+    order = ("sequence_no IS NULL, sequence_no DESC, id DESC"
+             if has_seq else "id DESC")
+    sel = ["game_id", "number"]
+    if has_status:
+        sel.append("status")
+    if has_seq:
+        sel.append("sequence_no")
+    rows = conn.execute(
+        f"SELECT {', '.join(sel)} FROM roulette_spins ORDER BY {order} LIMIT ?",
+        (window,),
+    ).fetchall()
+    n = len(rows)
+
+    seqs = [r["sequence_no"] for r in rows
+            if has_seq and r["sequence_no"] is not None]
+    holes = []
+    if seqs:
+        lo, hi = min(seqs), max(seqs)
+        present = set(seqs)
+        holes = [i for i in range(lo, hi + 1) if i not in present]
+    # largest single run of consecutive holes (the "current gap")
+    largest_gap = 0
+    run = 0
+    prev = None
+    for h in holes:
+        run = run + 1 if (prev is not None and h == prev + 1) else 1
+        largest_gap = max(largest_gap, run)
+        prev = h
+
+    verified = repaired = unverified = invalid = 0
+    gid_count = {}
+    gid_nums = {}
+    for r in rows:
+        if has_status:
+            st = r["status"]
+            if st == "REPAIRED":
+                verified += 1
+                repaired += 1
+            elif st == "VALID":
+                verified += 1
+            else:                     # UNVERIFIED / NULL / other -> unverified
+                unverified += 1
+        else:
+            verified += 1             # legacy table: no integrity statuses
+        num = r["number"]
+        if not (isinstance(num, int) and 0 <= num <= 36):
+            invalid += 1
+        gid = r["game_id"]
+        if gid:
+            gid_count[gid] = gid_count.get(gid, 0) + 1
+            gid_nums.setdefault(gid, set()).add(num)
+
+    duplicates = sum(1 for c in gid_count.values() if c > 1)
+    conflicts = sum(1 for nums in gid_nums.values() if len(nums) > 1)
+    missing = len(holes)
+    perfect = (missing == 0 and duplicates == 0 and conflicts == 0
+               and unverified == 0 and invalid == 0)
+    return {
+        "window": window,
+        "checked": n,
+        "verified": verified,
+        "verified_label": f"{verified} / {n} verified",
+        "missing": missing,
+        "duplicates": duplicates,
+        "conflicts": conflicts,
+        "unverified": unverified,
+        "repaired": repaired,
+        "current_gap": largest_gap,
+        "invalid_numbers": invalid,
+        "perfect": perfect,
+    }
+
+
 @app.get("/api/integrity")
 def integrity():
     """Data-integrity panel payload (PRD §36): latest reconciliation state,
     health score, telemetry, verified window, open incidents, repair history,
-    and per-component health (WebSocket/DOM/SQLite/Collector)."""
+    per-component health, and the §26 rolling-500 trust indicator (§27
+    perfect-dataset definition)."""
     conn = db.connect()
     try:
         # latest reconciliation event (light or full) carries state/score/telemetry
@@ -210,6 +302,7 @@ def integrity():
             "open_incidents": open_incidents,
             "health_score": score,
             "collector_state": (last_recon or {}).get("state"),
+            "rolling500": rolling_verify(conn),
             "components": {
                 "collector": "Healthy" if collector_ok else "Stalled",
                 "websocket": "Healthy" if ws_ok else "Idle",

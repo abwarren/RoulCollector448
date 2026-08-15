@@ -628,6 +628,18 @@ async function loadIntegrity() {
       chip("WebSocket", c.websocket === "Healthy") +
       chip("DOM", c.dom === "Healthy") +
       chip("SQLite", c.sqlite === "Healthy");
+    // PRD §26-27: rolling-500 trust indicator (core trust signal)
+    const r5 = d.rolling500;
+    if (r5) {
+      $("vVerified").textContent = r5.verified_label;
+      $("vGap").textContent = r5.current_gap;
+      $("vMissing").textContent = r5.missing;
+      $("vDupes").textContent = r5.duplicates;
+      $("vConflicts").textContent = r5.conflicts;
+      $("vUnverified").textContent = r5.unverified;
+      $("vRepaired").textContent = r5.repaired;
+      $("vPerfect").classList.toggle("hidden", !r5.perfect);
+    }
   } catch {
     $("intVerified").textContent = "—";
   }

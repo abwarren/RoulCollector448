@@ -68,6 +68,23 @@
     </div>
   </section>
 
+  <section id="verifyPanel" class="panel">
+    <h3>Last 500 data integrity <span class="sub">core trust indicator · PRD §26-27</span></h3>
+    <div id="verifyBody" class="audit-body">
+      <div class="audit-row">
+        <div><span class="kv">verified</span> <b id="vVerified">—</b> <span id="vPerfect" class="chip chip-ok hidden">PERFECT DATASET</span></div>
+        <div><span class="kv">current gap</span> <b id="vGap">—</b></div>
+      </div>
+      <div class="audit-row">
+        <div><span class="kv">missing</span> <b id="vMissing">—</b></div>
+        <div><span class="kv">duplicates</span> <b id="vDupes">—</b></div>
+        <div><span class="kv">conflicts</span> <b id="vConflicts">—</b></div>
+        <div><span class="kv">unverified</span> <b id="vUnverified">—</b></div>
+        <div><span class="kv">repaired</span> <b id="vRepaired">—</b></div>
+      </div>
+    </div>
+  </section>
+
   <section id="incidentPanel" class="panel">
     <h3>Incidents <span class="sub">last 20 · root cause</span></h3>
     <div class="table-wrap incident-scroll"><table id="incidentTable"></table></div>
