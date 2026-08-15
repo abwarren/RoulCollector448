@@ -367,6 +367,8 @@ async function tickHealth() {
   loadStreaks().catch(() => {});
   loadRolling().catch(() => {});
   loadIntegrity().catch(() => {});
+  // capture latency rides the existing /api/health fetch (no second request)
+  renderLatency(h.latency);
   // incidents every 6th tick (~30s) — the query is cheap but not per-second
   if (++state.tick % 6 === 1) loadIncidents().catch(() => {});
   // adaptive cadence: no new number yet -> hyperpoll (2s); new spin landed -> 44s
@@ -650,6 +652,43 @@ async function loadIncidents() {
   }
 }
 
+/* ---------------- capture latency (PRD §19) ---------------- */
+
+const LATENCY_P99_ALERT_S = 10.0; // collector/roulette2_collector.py
+
+function fmtSec(v) {
+  return (v === null || v === undefined) ? "—" : (+v).toFixed(3) + "s";
+}
+
+// Render the latency block of /api/health into the capture-latency panel.
+// lat may be null (no heartbeat yet) -> show an em-dash placeholder.
+function renderLatency(lat) {
+  const body = $("latencyBody");
+  if (!body) return;
+  if (!lat) {
+    body.innerHTML = `<span class="kv">capture latency</span> <span class="mono">—</span>`;
+    return;
+  }
+  const cell = (v) => `<td class="mono">${fmtSec(v)}</td>`;
+  const capP99 = lat.p99;
+  const p99cls = (v) =>
+    (v !== null && v !== undefined && +v > LATENCY_P99_ALERT_S) ? ' class="lat-alert"' : "";
+  body.innerHTML =
+    `<table><thead><tr><th>phase</th><th>P50</th><th>P95</th><th>P99</th><th>max</th><th>n</th></tr></thead><tbody>` +
+    `<tr><td>capture</td>${cell(lat.p50)}${cell(lat.p95)}` +
+    `<td class="mono"${p99cls(capP99)}>${fmtSec(capP99)}</td>${cell(lat.max)}` +
+    `<td class="mono">${lat.n ?? "—"}</td></tr>` +
+    `<tr><td>commit</td>${cell(lat.commit_p50)}${cell(lat.commit_p95)}` +
+    `${cell(lat.commit_p99)}${cell(lat.commit_max)}` +
+    `<td class="mono">${lat.commit_n ?? "—"}</td></tr>` +
+    `</tbody></table>`;
+}
+
+async function loadLatency() {
+  const h = await api("/api/health");
+  renderLatency(h.latency);
+}
+
 /* ---------------- audit ---------------- */
 
 async function loadAudit() {
@@ -686,6 +725,7 @@ async function boot() {
   loadAudit();
   loadIntegrity();
   loadIncidents();
+  loadLatency();                      // initial paint before first tickHealth
   tickHealth();                       // starts adaptive poll loop (2s/44s)
   setInterval(loadAudit, 3600 * 1000); // keep the audit panel fresh hourly
 }
