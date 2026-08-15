@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Standalone reconcile worker — the collector's reconcile loop WITHOUT the
+collector process.
+
+The collector's reconcile_task only runs while the browser session is alive:
+if the collector is down or between sessions, repairs never happen. This
+worker decouples reconciliation from capture so the rolling window keeps
+self-auditing (PRD §13/§53) even when the collector is not running.
+
+Every RECONCILE_LIGHT_S (30s):
+  1. open the DB read-write via collector.schema.connect()
+  2. load the latest RECONCILE_WINDOW (500) canonical spins
+     (SELECT ... ORDER BY id DESC LIMIT 500 — newest first)
+  3. load authoritative history via DBHistoryProvider (spin_observations
+     rows with source='history', persisted by the collector from WS history
+     frames — the authority survives restarts)
+  4. call reconciler.reconcile(oldest-first local, provider) exactly like
+     the collector does (reconcile expects OLDEST-first local and reverses
+     internally)
+  5. when result.plan.repairable and not result.ok, apply repairs via
+     Repairer.apply_plan, logging REPAIR_FAILED on failure
+  6. log a RECONCILIATION integrity event with the pass details
+  7. sleep RECONCILE_LIGHT_S, loop forever (KeyboardInterrupt exits cleanly)
+
+The cadence/window constants mirror collector/roulette2_collector.py (the
+source of truth); they are deliberately NOT imported from it — that module
+drags in playwright and the Sunbet credential guard, which this worker must
+not depend on.
+"""
+
+import os
+import sqlite3
+import sys
+import time
+
+# Resolve the `collector` package from the repo root whether invoked as
+# `python scripts/standalone_reconcile.py` or `python -m scripts.standalone_reconcile`.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from collector import history, observer, reconciler, repairer, schema  # noqa: E402
+
+# Mirror collector/roulette2_collector.py (module-level constants there).
+RECONCILE_LIGHT_S = 30
+RECONCILE_WINDOW = 500
+
+
+def _details(result) -> dict:
+    """Map a ReconciliationResult onto the logged RECONCILIATION details."""
+    return {
+        "ok": result.ok,
+        "window": result.window,
+        "missing": result.missing_count,
+        "corrections": result.correction_count,
+        "duplicates": result.duplicate_count,
+        "reordered": result.reorder_count,
+        "extras": result.extra_count,
+        "repairable": result.repairable,
+        "message": result.message,
+    }
+
+
+def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
+    """Run ONE reconcile pass against the DB; return the details dict.
+
+    conn: optional read-write connection (tests pass their own tmp-DB
+    connection). When None, the worker opens one via collector.schema.connect()
+    (RC_DB_PATH env / schema default resolved at import) and closes it before
+    returning. The pass itself:
+
+      load latest canonical spins -> authoritative history observations ->
+      reconcile (oldest-first) -> repair if repairable -> RECONCILIATION event
+    """
+    owns_conn = conn is None
+    if owns_conn:
+        conn = schema.connect()
+    try:
+        # canonical spins, newest first (the storage order: id == append order)
+        rows = conn.execute(
+            "SELECT game_id, number, server_ts FROM roulette_spins "
+            "ORDER BY id DESC LIMIT ?",
+            (window,),
+        ).fetchall()
+        if not rows:
+            details = {"ok": True, "window": 0, "missing": 0, "corrections": 0,
+                       "duplicates": 0, "reordered": 0, "extras": 0,
+                       "repairable": False,
+                       "message": "no canonical spins yet — nothing to reconcile"}
+            observer.log_event(conn, "RECONCILIATION", severity="INFO",
+                               details=details, root_cause="DATA_INTEGRITY")
+            return details
+
+        local_newest = [{"game_id": r[0], "number": r[1], "server_ts": r[2]}
+                        for r in rows]
+        # reconcile() expects OLDEST-first local (it reverses internally) —
+        # the query above returned newest-first, so reverse it back.
+        local_oldest = list(reversed(local_newest))
+
+        # authoritative history: durable source='history' observations
+        # (survives collector restarts; read-only probe of the same DB)
+        remote = history.DBHistoryProvider().fetch_recent_history(limit=window)
+        result = reconciler.reconcile(local_oldest,
+                                      history.StaticHistoryProvider(remote),
+                                      window=window)
+        details = _details(result)
+
+        # deterministic repairs only when the authority carries identity
+        # (PRD §24/§25); failures are logged, never fatal to the loop.
+        if result.plan.repairable and not result.ok:
+            try:
+                rep = repairer.Repairer(conn)
+                rep.apply_plan(result.plan)
+            except Exception as e:
+                try:
+                    observer.log_event(conn, "REPAIR_FAILED",
+                                       severity="CRITICAL",
+                                       details={"error": str(e)},
+                                       root_cause="DATA_INTEGRITY")
+                except Exception:
+                    pass
+
+        sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
+        observer.log_event(conn, "RECONCILIATION", severity=sev,
+                           details=details, root_cause="DATA_INTEGRITY")
+        return details
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def main() -> None:
+    print(f"[{observer.now_iso()}] standalone reconcile worker — "
+          f"light pass every {RECONCILE_LIGHT_S}s, window {RECONCILE_WINDOW}")
+    while True:
+        try:
+            details = run_once()
+            print(f"[{observer.now_iso()}] RECONCILIATION ok={details['ok']} "
+                  f"window={details['window']} missing={details['missing']} "
+                  f"corrections={details['corrections']} "
+                  f"duplicates={details['duplicates']} "
+                  f"reordered={details['reordered']} extras={details['extras']} "
+                  f"repairable={details['repairable']} — {details['message']}")
+        except KeyboardInterrupt:
+            print("\n[reconcile] KeyboardInterrupt — exiting cleanly")
+            break
+        except Exception as e:
+            print(f"[reconcile] pass failed: {e}")
+            try:
+                sconn = schema.connect()
+                observer.log_event(sconn, "RECONCILIATION", severity="WARNING",
+                                   details={"error": str(e)},
+                                   root_cause="DATA_INTEGRITY")
+                sconn.close()
+            except Exception:
+                pass
+        time.sleep(RECONCILE_LIGHT_S)
+
+
+if __name__ == "__main__":
+    main()

@@ -774,10 +774,11 @@ async def collect_loop():
             capture without ever blocking it (capture is non-blocking; this
             task only reads `state["spins"]` and writes integrity_events).
 
-            Light pass every 45s, full window audit every 5 min. The DOM
-            history panel is the authoritative source; if it's unavailable
-            the window is UNVERIFIED (never guessed, PRD §5/§25). Results
-            land in integrity_events for the dashboard /api/integrity.
+            Light pass every 30s (RECONCILE_LIGHT_S), full window audit
+            every 60s (RECONCILE_FULL_S). The DOM history panel is the
+            authoritative source; if it's unavailable the window is
+            UNVERIFIED (never guessed, PRD §5/§25). Results land in
+            integrity_events for the dashboard /api/integrity.
             """
             if state["session_id"] is None:
                 return
@@ -789,7 +790,7 @@ async def collect_loop():
             while True:
                 await asyncio.sleep(10)
                 now = time.time()
-                # light: 45s cadence; full: 300s cadence
+                # light: RECONCILE_LIGHT_S (30s) cadence; full: RECONCILE_FULL_S (60s) cadence
                 if now - last_light < RECONCILE_LIGHT_S and now - last_full < RECONCILE_FULL_S:
                     continue
                 is_full = (now - last_full) >= RECONCILE_FULL_S
