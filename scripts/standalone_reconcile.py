@@ -74,10 +74,22 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
     if owns_conn:
         conn = schema.connect()
     try:
-        # canonical spins, newest first (the storage order: id == append order)
+        # canonical-ordering reconstruction FIRST (idempotent: a consistent
+        # dataset changes nothing). Normalizes collisions / order violations
+        # to the chronological evidence order (server_ts -> captured_at) so
+        # the reconcile pass below reads a well-ordered canonical sequence —
+        # and any windowed game_id-verified repair from apply_plan then
+        # takes precedence over the ts-based sweep.
+        try:
+            recon = repairer.Repairer(conn).reconstruct_ordering()
+        except Exception:
+            recon = None
+
+        # canonical spins, newest first — in CANONICAL SEQUENCE order (the
+        # reconstructed ordering), NULL sequence last, id tie-break.
         rows = conn.execute(
             "SELECT game_id, number, server_ts FROM roulette_spins "
-            "ORDER BY id DESC LIMIT ?",
+            "ORDER BY sequence_no IS NULL, sequence_no DESC, id DESC LIMIT ?",
             (window,),
         ).fetchall()
         if not rows:
@@ -119,6 +131,8 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
                     pass
 
         sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
+        if recon and recon.get("reordered"):
+            details["reconstruct"] = recon   # the sweep changed ordering
         observer.log_event(conn, "RECONCILIATION", severity=sev,
                            details=details, root_cause="DATA_INTEGRITY")
         return details

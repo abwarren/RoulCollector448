@@ -34,6 +34,27 @@ STATUS_REPAIRED = "REPAIRED"
 STATUS_UNVERIFIED = "UNVERIFIED"
 
 
+def _ts_epoch(s) -> float | None:
+    """Parse ISO-8601 or epoch (s/ms) timestamps to epoch seconds — the
+    chronological evidence for reconstruct_ordering. None when unparseable
+    (such rows sort last, after a deterministic id tie-break)."""
+    if not s:
+        return None
+    s = str(s)
+    try:
+        f = float(s)
+        return f if f < 1e12 else f / 1000.0
+    except ValueError:
+        pass
+    try:
+        import datetime
+        return datetime.datetime.fromisoformat(
+            s.replace("Z", "+00:00")
+        ).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
 def plan_incident_types(plan) -> list:
     """Derive the PRD §23 incident types present in a RepairPlan. Returns a
     list of {"type", "start", "end", "count"} — one entry per incident class
@@ -186,6 +207,75 @@ class Repairer:
         if commit:
             self.conn.commit()
         return n
+
+    # ------------------------------------------------------------------
+    # Reconstruct — rebuild the canonical ordering (sequence_no 1..N)
+    # ------------------------------------------------------------------
+    def reconstruct_ordering(self, commit: bool = True) -> dict:
+        """Reconstruct the canonical ordering: rebuild sequence_no 1..N for
+        ALL rows from the best available chronological evidence (server_ts,
+        fallback captured_at, deterministic id tie-break).
+
+        Deterministic and idempotent: a consistent dataset (1..N, matching
+        the chronological evidence) changes nothing. Fixes collisions
+        (duplicate sequence_no), NULL sequence_no, and order violations
+        (sequence contradicting timestamps). Closes gaps by compressing to
+        1..N — the reconciler's game_id-based insertion-shift detection
+        re-opens and backfills any genuine miss from authoritative history.
+
+        Records a RECONSTRUCT_ORDER repair event when anything changed, with
+        the before-state anomalies (collisions_found, gaps_found) in
+        details. Never touches observations.
+
+        Returns {"checked", "reordered", "gaps_found", "collisions_found"}.
+        """
+        rows = self.conn.execute(
+            "SELECT id, game_id, server_ts, captured_at, sequence_no "
+            "FROM roulette_spins"
+        ).fetchall()
+        n = len(rows)
+        if not n:
+            return {"checked": 0, "reordered": 0,
+                    "gaps_found": 0, "collisions_found": 0}
+
+        # before-state anomalies
+        seqs = [r["sequence_no"] for r in rows if r["sequence_no"] is not None]
+        collisions = len(seqs) - len(set(seqs))
+        gaps = 0
+        if seqs:
+            present = set(seqs)
+            gaps = sum(1 for i in range(1, max(seqs) + 1) if i not in present)
+
+        # chronological evidence order: server_ts, fallback captured_at,
+        # unparseable/absent sorts last, id tie-breaks (deterministic)
+        def _key(r):
+            ts = _ts_epoch(r["server_ts"])
+            if ts is None:
+                ts = _ts_epoch(r["captured_at"])
+            return (ts is None, ts if ts is not None else 0.0, r["id"])
+
+        ordered = sorted(rows, key=_key)
+
+        changed = 0
+        for i, r in enumerate(ordered, start=1):
+            if r["sequence_no"] != i:
+                changed += 1
+                self.conn.execute(
+                    "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
+                    "WHERE id=?",
+                    (i, now_iso(), r["id"]),
+                )
+        if commit:
+            self.conn.commit()
+        if changed:
+            self.record_repair(
+                "RECONSTRUCT_ORDER", affected_count=changed,
+                status="RESOLVED", resolution="REORDERED",
+                details={"checked": n, "reordered": changed,
+                         "gaps_found": gaps, "collisions_found": collisions},
+            )
+        return {"checked": n, "reordered": changed,
+                "gaps_found": gaps, "collisions_found": collisions}
 
     # ------------------------------------------------------------------
     # Audit — every repair writes a repair_events row (PRD §23 queue)
