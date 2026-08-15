@@ -32,8 +32,11 @@ def now_iso() -> str:
 
 
 def new_session_id() -> str:
-    """e.g. 2026-08-15T04:32:01Z-7f92 — unique per collector session."""
-    return f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}-{secrets.token_hex(2)}"
+    """e.g. 2026-08-15T04:32:01Z-7f92a3b1 — unique per collector session.
+
+    4 hex bytes (32 bits) of entropy: 200 IDs in the same second collide
+    with probability ~4e-6 (2 hex bytes flaked at ~30% in tests)."""
+    return f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}-{secrets.token_hex(4)}"
 
 
 def payload_hash(source: str, game_id, number, server_ts) -> str:
