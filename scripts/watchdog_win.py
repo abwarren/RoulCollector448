@@ -2,13 +2,24 @@
 """Windows watchdog for the RoulCollector448 collector — the equivalent of
 the Linux systemd timer (collector/roulette2-watchdog.timer, 5 min).
 
-Reads the collector's heartbeat file (~/.roulette2/roulette2_heartbeat.json,
-written every ~5s). If it's missing or stale (> 12 minutes — matches the
-Linux SILENCE_WINDOW) the collector is presumed dead/hung and gets
-restarted via start_collector.bat (same mechanism the user would use).
+Failure modes it catches (PRD §29):
+  * PROCESS DEAD   — no collector process in the OS table. Detected FIRST,
+                     immediately (a dead process never produces output again
+                     — no reason to wait for the heartbeat to go stale).
+                     Previously the heartbeat was checked first, so a process
+                     that died seconds ago (heartbeat still fresh) was
+                     reported "ok" until the 12-min silence window elapsed.
+  * HUNG           — process alive but heartbeat missing/stale (> 12 min,
+                     matches Linux SILENCE_WINDOW): kill + restart.
+  * NEVER STARTED  — no process AND no heartbeat (e.g. after boot): start.
+  * BOOTING        — process alive, no heartbeat yet, started < BOOT_GRACE_S
+                     ago (browser launch takes time): healthy, leave alone.
+
+The decision is a pure function (`decide`) so it is unit-testable without
+invoking PowerShell. Exit 0 = healthy, 1 = action taken.
 
 Install: register_tasks.ps1 registers RoulCollector448-Watchdog to run this
-every 5 minutes. Never raises; exit 0 = healthy, 1 = action taken.
+every 5 minutes. Never raises.
 """
 
 import json
@@ -17,7 +28,8 @@ import subprocess
 import sys
 from datetime import datetime
 
-SILENCE_S = 12 * 60  # matches the Linux watchdog (12 minutes)
+SILENCE_S = 12 * 60      # matches the Linux watchdog (12 minutes)
+BOOT_GRACE_S = 3 * 60    # process alive but no heartbeat yet -> allow boot
 
 DATA_DIR = os.environ.get("RC_DATA_DIR") or os.path.join(
     os.path.expanduser("~"), ".roulette2")
@@ -25,6 +37,29 @@ HEARTBEAT = os.environ.get("RC_HEARTBEAT_FILE") or os.path.join(
     DATA_DIR, "roulette2_heartbeat.json")
 START_BAT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "..", "start_collector.bat")
+
+
+def decide(*, alive: bool, hb_age, proc_age=None) -> tuple[str, bool]:
+    """Pure watchdog decision.
+
+    alive      — is the collector process present in the OS table?
+    hb_age     — seconds since the heartbeat was written (None = missing).
+    proc_age   — seconds since the collector process started (None = unknown).
+
+    Returns (action, restart): action is one of
+      'ok' | 'dead' | 'hung' | 'starting'.
+    """
+    if not alive:
+        # PROCESS DEAD (or never started) — restart now. The heartbeat
+        # freshness is IRRELEVANT: a dead process never writes again.
+        return "dead", True
+    if hb_age is None:
+        if proc_age is not None and proc_age < BOOT_GRACE_S:
+            return "starting", False     # still booting — leave it alone
+        return "hung", True              # alive but never/silent since boot
+    if hb_age < SILENCE_S:
+        return "ok", False
+    return "hung", True                  # alive but silent too long
 
 
 def _hb_age():
@@ -41,17 +76,40 @@ def _hb_age():
         return None
 
 
-def _collector_pids():
-    """PIDs of any python process whose command line mentions the collector."""
+def _collector_info():
+    """(pids, oldest_proc_age_s) for any python process whose command line
+    mentions the collector. proc_age None when no pids/unknown."""
     ps = ("Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | "
           "Where-Object { $_.CommandLine -like '*roulette2_collector*' } | "
-          "Select-Object -ExpandProperty ProcessId")
+          "Select-Object ProcessId, CreationDate")
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
                              capture_output=True, text=True, timeout=20)
-        return [int(x) for x in out.stdout.split() if x.strip().isdigit()]
+        pids, ages = [], []
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0].strip().isdigit():
+                pids.append(int(parts[0].strip()))
+                try:
+                    created = datetime.fromisoformat(
+                        parts[1].strip().replace("Z", "+00:00"))
+                    ages.append(
+                        (datetime.now().astimezone() - created).total_seconds())
+                except Exception:
+                    pass
+        oldest = min(ages) if ages else None
+        return pids, oldest
     except Exception:
-        return []
+        return [], None
+
+
+def _kill(pids):
+    for pid in pids:
+        try:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                           capture_output=True, timeout=15)
+        except Exception:
+            pass
 
 
 def _start_collector():
@@ -70,27 +128,28 @@ def _start_collector():
 
 
 def main():
+    pids, proc_age = _collector_info()
     age = _hb_age()
-    if age is None:
-        print(f"WATCHDOG: no heartbeat ({HEARTBEAT})")
-    elif age < SILENCE_S:
-        print(f"WATCHDOG: ok (heartbeat {int(age)}s old)")
-        return 0
-    else:
-        print(f"WATCHDOG: heartbeat stale ({int(age)}s > {SILENCE_S}s)")
+    action, restart = decide(alive=bool(pids), hb_age=age, proc_age=proc_age)
 
-    pids = _collector_pids()
-    if not pids:
-        print("WATCHDOG: collector not running — starting")
+    if action == "ok":
+        print(f"WATCHDOG: ok (heartbeat {int(age)}s old, pids {pids})")
+        return 0
+    if action == "starting":
+        print(f"WATCHDOG: collector booting (pid {pids}, heartbeat not yet "
+              f"written, {int(proc_age)}s old) — ok")
+        return 0
+    if action == "dead":
+        print(f"WATCHDOG: process dead (no collector process, heartbeat "
+              f"{'missing' if age is None else str(int(age)) + 's old'}) — "
+              f"starting now")
         _start_collector()
         return 1
-    print(f"WATCHDOG: collector running but silent (pids {pids}) — restarting")
-    for pid in pids:
-        try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
-                           capture_output=True, timeout=15)
-        except Exception:
-            pass
+    # hung
+    print(f"WATCHDOG: process alive ({pids}) but "
+          f"{'no heartbeat' if age is None else 'heartbeat stale ' + str(int(age)) + 's'} "
+          f"— killing and restarting")
+    _kill(pids)
     _start_collector()
     return 1
 
