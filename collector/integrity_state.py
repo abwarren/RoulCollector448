@@ -11,6 +11,7 @@ Data-health score (PRD §22) with configurable weights; capture telemetry
 counters (PRD §41) that make failures measurable rather than anecdotal.
 """
 
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -33,7 +34,11 @@ DEFAULT_WEIGHTS = {
     "source_agreement": 0.10,
 }
 
-SCORE_BANDS = [   # (min_score, label)
+# Score bands (PRD §22) — the exact thresholds are CONFIGURABLE via env:
+#   RC_SCORE_VERIFIED / RC_SCORE_HEALTHY / RC_SCORE_DEGRADED / RC_SCORE_WARNING
+# Defaults match the PRD: 100-98 VERIFIED, 97-95 HEALTHY, 94-90 DEGRADED,
+# 89-75 WARNING, <75 CRITICAL.
+DEFAULT_SCORE_BANDS = [   # (min_score, label)
     (98, "VERIFIED"),
     (95, "HEALTHY"),
     (90, "DEGRADED"),
@@ -41,9 +46,36 @@ SCORE_BANDS = [   # (min_score, label)
     (0, "CRITICAL"),
 ]
 
+_BAND_ENV = [
+    ("RC_SCORE_VERIFIED", "VERIFIED"),
+    ("RC_SCORE_HEALTHY", "HEALTHY"),
+    ("RC_SCORE_DEGRADED", "DEGRADED"),
+    ("RC_SCORE_WARNING", "WARNING"),
+]
+
+
+def score_bands() -> list:
+    """Resolve the score-band thresholds, honouring env overrides. Parsed
+    per call so a config change applies without restart; invalid env values
+    fall back to defaults (never crash the health score). Un-overridden
+    bands keep their defaults — an override replaces only that threshold."""
+    bands = {label: mn for mn, label in DEFAULT_SCORE_BANDS}
+    for var, label in _BAND_ENV:
+        raw = os.environ.get(var, "").strip()
+        if raw:
+            try:
+                bands[label] = int(raw)
+            except ValueError:
+                pass
+    ordered = sorted(
+        ((bands[label], label) for _, label in _BAND_ENV),
+        key=lambda t: -t[0],
+    )
+    return ordered + [(0, "CRITICAL")]
+
 
 def score_band(score: float) -> str:
-    for min_score, label in SCORE_BANDS:
+    for min_score, label in score_bands():
         if score >= min_score:
             return label
     return "CRITICAL"

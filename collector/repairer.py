@@ -34,6 +34,33 @@ STATUS_REPAIRED = "REPAIRED"
 STATUS_UNVERIFIED = "UNVERIFIED"
 
 
+def plan_incident_types(plan) -> list:
+    """Derive the PRD §23 incident types present in a RepairPlan. Returns a
+    list of {"type", "start", "end", "count"} — one entry per incident class
+    (MISSING_SPIN, WRONG_VALUE, DUPLICATE, CONFLICT, OUT_OF_ORDER). The
+    repair queue records one event per class, not a blanket type."""
+    out = []
+    if plan.missing:
+        gids = [r.game_id for r in plan.missing if r.game_id]
+        if gids:
+            out.append({"type": "MISSING_SPIN", "start": gids[0],
+                        "end": gids[-1], "count": len(gids)})
+    if plan.corrections:
+        out.append({"type": "WRONG_VALUE", "start": plan.corrections[0][0],
+                    "end": plan.corrections[-1][0],
+                    "count": len(plan.corrections)})
+    for gid in plan.duplicates:
+        kind = plan.duplicate_kinds.get(gid, "EXACT")
+        itype = "CONFLICT" if kind == "CONFLICT" else "DUPLICATE"
+        out.append({"type": itype, "start": gid, "end": gid, "count": 1})
+    n_seq = len(plan.renumber) or len(plan.reorder)
+    if n_seq:
+        gids = [g for g, _ in plan.renumber] or plan.reorder
+        out.append({"type": "OUT_OF_ORDER", "start": gids[0],
+                    "end": gids[-1], "count": n_seq})
+    return out
+
+
 def _run_transaction(conn, fn) -> bool:
     """Run fn(conn) inside BEGIN/COMMIT; ROLLBACK on any exception."""
     try:
@@ -161,23 +188,53 @@ class Repairer:
         return n
 
     # ------------------------------------------------------------------
-    # Audit — every repair writes a repair_events row
+    # Audit — every repair writes a repair_events row (PRD §23 queue)
     # ------------------------------------------------------------------
     def record_repair(self, incident_type: str, *, start_game_id=None,
                       end_game_id=None, affected_count=0, status="RESOLVED",
                       resolution=None, details=None) -> int:
-        cur = self.conn.execute(
-            "INSERT INTO repair_events "
-            "(created_at, incident_type, start_game_id, end_game_id, "
-            " affected_count, status, attempts, last_attempt_at, resolved_at, "
-            " resolution, details) "
-            "VALUES (?,?,?,?,?,?,1,?,?,?,?)",
-            (now_iso(), incident_type, start_game_id, end_game_id,
-             affected_count, status, now_iso(), now_iso(),
-             resolution, json.dumps(details) if details else None),
-        )
+        """Record a repair attempt in the queue (PRD §23). If an unresolved
+        event (OPEN/FAILED) exists for the same incident (type + start id),
+        INCREMENT attempts and update last_attempt_at — retry semantics.
+        Otherwise insert a new event with attempts=1. Returns the event id."""
+        now = now_iso()
+        row = self.conn.execute(
+            "SELECT id FROM repair_events "
+            "WHERE incident_type=? AND start_game_id IS ? "
+            "AND status IN ('OPEN','FAILED') ORDER BY id DESC LIMIT 1",
+            (incident_type, start_game_id),
+        ).fetchone()
+        if row:
+            ev_id = row["id"]
+            if status == "RESOLVED":
+                self.conn.execute(
+                    "UPDATE repair_events SET attempts=attempts+1, "
+                    "last_attempt_at=?, status='RESOLVED', resolved_at=?, "
+                    "resolution=?, affected_count=?, details=? WHERE id=?",
+                    (now, now, resolution, affected_count,
+                     json.dumps(details) if details else None, ev_id),
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE repair_events SET attempts=attempts+1, "
+                    "last_attempt_at=?, status=?, resolution=? WHERE id=?",
+                    (now, status, resolution, ev_id),
+                )
+        else:
+            cur = self.conn.execute(
+                "INSERT INTO repair_events "
+                "(created_at, incident_type, start_game_id, end_game_id, "
+                " affected_count, status, attempts, last_attempt_at, "
+                " resolved_at, resolution, details) "
+                "VALUES (?,?,?,?,?,?,1,?,?,?,?)",
+                (now, incident_type, start_game_id, end_game_id,
+                 affected_count, status, now,
+                 now if status == "RESOLVED" else None,
+                 resolution, json.dumps(details) if details else None),
+            )
+            ev_id = cur.lastrowid if cur.lastrowid is not None else 0
         self.conn.commit()
-        return cur.lastrowid if cur.lastrowid is not None else 0
+        return ev_id
 
     # ------------------------------------------------------------------
     # Apply a whole RepairPlan atomically (PRD §33)
@@ -210,10 +267,15 @@ class Repairer:
                                           sequence_no=plan.missing_seq.get(rec.game_id),
                                           commit=False)
                     summary["backfilled"] += 1
-            # corrections
+            # corrections — capture old->new for the audit trail (§35)
             for gid, _old, new in plan.corrections:
+                row = self.conn.execute(
+                    "SELECT number FROM roulette_spins WHERE game_id=?", (gid,)
+                ).fetchone()
+                old = row["number"] if row else _old
                 if self.correct_value(gid, new, commit=False):
                     summary["corrected"] += 1
+                    corrections_detail.append((gid, old, new))
             # duplicates -> collapse, preferring the row that matches the
             # authoritative value (from corrections: (gid, old, new) — new
             # is what the authoritative history says the spin IS).
@@ -241,6 +303,9 @@ class Repairer:
             if verify_fn is not None:
                 verify_fn(conn)
 
+        incidents = plan_incident_types(plan)
+        corrections_detail = []  # (gid, old, new) audit trail
+
         # atomicity (PRD §33): one BEGIN...COMMIT; ROLLBACK on any failure —
         # never partially repair a sequence.
         self.conn.execute("BEGIN")
@@ -249,12 +314,25 @@ class Repairer:
             self.conn.execute("COMMIT")
         except Exception:
             self.conn.execute("ROLLBACK")
+            # a FAILED attempt still lands in the queue (retry semantics:
+            # the next pass increments attempts on the same incident).
+            for inc in incidents:
+                self.record_repair(
+                    inc["type"], start_game_id=inc["start"],
+                    end_game_id=inc["end"], affected_count=inc["count"],
+                    status="FAILED", resolution="REPAIR_FAILED",
+                    details={**summary, "error": "verify_failed"},
+                )
             raise
 
-        ev_id = self.record_repair(
-            "RECONCILIATION_REPAIR",
-            affected_count=sum(summary.values()),
-            resolution="REPAIRED",
-            details=summary,
-        )
-        return {**summary, "repair_event_id": ev_id}
+        ev_ids = []
+        for inc in incidents:
+            ev_id = self.record_repair(
+                inc["type"], start_game_id=inc["start"],
+                end_game_id=inc["end"], affected_count=inc["count"],
+                status="RESOLVED", resolution="REPAIRED",
+                details={**summary, "corrections": corrections_detail},
+            )
+            ev_ids.append(ev_id)
+        return {**summary, "repair_event_id": ev_ids[0] if ev_ids else 0,
+                "repair_event_ids": ev_ids}

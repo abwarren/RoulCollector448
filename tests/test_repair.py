@@ -165,8 +165,11 @@ def test_apply_plan_backfills_and_corrects(db):
     assert _count(db, "c") == 1
     assert db.execute("SELECT number FROM roulette_spins WHERE game_id='b'"
                       ).fetchone()[0] == 9
-    # audit row written
-    assert db.execute("SELECT COUNT(*) FROM repair_events").fetchone()[0] == 1
+    # audit rows written (PRD §23 — one per incident type)
+    rows = db.execute(
+        "SELECT incident_type FROM repair_events ORDER BY incident_type"
+    ).fetchall()
+    assert [r["incident_type"] for r in rows] == ["MISSING_SPIN", "WRONG_VALUE"]
 
 
 def test_apply_plan_refuses_without_authority(db):
@@ -311,7 +314,14 @@ def test_apply_plan_rolls_back_on_verify_failure(db):
     assert _count(db, "b") == 0
     assert db.execute("SELECT number FROM roulette_spins WHERE game_id='a'"
                       ).fetchone()[0] == 1
-    assert db.execute("SELECT COUNT(*) FROM repair_events").fetchone()[0] == 0
+    # the FAILED attempt still lands in the queue (PRD §23 retry
+    # semantics: attempts/last_attempt_at — the next pass increments)
+    rows = db.execute(
+        "SELECT incident_type, status, attempts FROM repair_events"
+    ).fetchall()
+    assert {r["incident_type"]: r["status"] for r in rows} == \
+        {"MISSING_SPIN": "FAILED", "WRONG_VALUE": "FAILED"}
+    assert all(r["attempts"] == 1 for r in rows)
 
 
 def test_apply_plan_verifies_ok(db):
