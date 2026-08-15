@@ -53,6 +53,14 @@ def test_hung_alive_stale_heartbeat():
     assert action == "hung" and restart is True
 
 
+def test_hung_five_minute_stale_heartbeat():
+    """PRD §29: the Windows heartbeat is written every 5s, so a 5-minute
+    stale heartbeat (60 missed beats) is definitively hung — long before
+    the old 12-minute Linux-aligned window."""
+    action, restart = decide(alive=True, hb_age=5 * 60)
+    assert action == "hung" and restart is True
+
+
 def test_booting_alive_no_heartbeat_young_process():
     """Process alive, no heartbeat yet, started < BOOT_GRACE_S ago (browser
     is still launching) -> starting, leave alone (no kill loop)."""

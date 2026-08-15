@@ -28,7 +28,12 @@ import subprocess
 import sys
 from datetime import datetime
 
-SILENCE_S = 12 * 60      # matches the Linux watchdog (12 minutes)
+SILENCE_S = 3 * 60       # hung threshold. The Windows heartbeat is written
+                         # EVERY 5s loop tick (roulette2_collector.py
+                         # write_heartbeat) — 3 min = 36 missed beats, far
+                         # tighter than the Linux journald window (12 min,
+                         # where output is sparse spins). No false positives;
+                         # a hung collector is caught ~9 min faster.
 BOOT_GRACE_S = 3 * 60    # process alive but no heartbeat yet -> allow boot
 
 DATA_DIR = os.environ.get("RC_DATA_DIR") or os.path.join(
