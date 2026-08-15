@@ -28,11 +28,19 @@ v2 — 2026-08-12 reliability ladder (fixes recurring time gaps in the dataset):
   * DOM candidate dump when the refresh selector misses, so the next stall
     logs the real Evolution refresh control instead of guessing blindly.
 
+v3 — 2026-08-15 integrity layer (observation store, no behaviour change):
+  * Every raw capture (WS frame + DOM poll) is recorded in spin_observations
+    (immutable) with session_id + payload_hash dedup, before canonical save.
+  * collector_sessions + integrity_events audit trail (SESSION_START/END).
+  * Canonical save path (INSERT OR IGNORE by gameId) is untouched; the
+    integrity tables are additive (ensure_schema at startup).
+  See docs/proposal-data-integrity.md (Phase 1).
+
 Credentials are read from env vars SUNBET_USER/SUNBET_PASS, falling back to
 ~/.config/roulette2_collector.env (KEY=VALUE lines). NEVER committed — this
 repo is public.
 """
-import json, time, os, sys, asyncio, sqlite3
+import json, re, time, os, sys, asyncio, sqlite3
 from playwright.async_api import async_playwright
 from datetime import datetime
 
@@ -42,6 +50,13 @@ STATE_FILE = "/home/wa/roulette2_spins.json"
 CSV_FILE = "/home/wa/roulette2_spins.csv"
 DB_FILE = "/home/wa/roulette2_spins.db"
 CRED_FILE = os.path.expanduser("~/.config/roulette2_collector.env")
+
+# ---- integrity layer (v3) — additive, never blocks capture ----
+os.environ.setdefault("RC_DB_PATH", DB_FILE)
+try:                                     # repo layout (package context)
+    from . import observer, schema
+except ImportError:                      # deployed flat script on the box
+    import observer, schema  # type: ignore
 
 STALL_THRESHOLD_S = 120   # matches dashboard GAP_S; max legit cadence ~57s
 RUNG_WAIT_S = 30          # wait for a new spin after rungs 0-2
@@ -257,6 +272,17 @@ def make_on_ws_frame(state):
                         "timestamp": ts,
                         "captured_at": datetime.now().isoformat()
                     })
+                    # v3: record the raw observation (immutable) — dedup by content
+                    s["obs_buffer"].append({
+                        "source": "websocket",
+                        "session_id": s["session_id"],
+                        "game_id": game_id,
+                        "number": number if isinstance(number, int) else None,
+                        "description": desc_full,
+                        "server_ts": ts or None,
+                        "raw_payload": payload,
+                        "sequence_hint": s["ws_captured"],
+                    })
                     s["new_since_save"] += 1
                     s["ws_captured"] += 1
                     total = len(s["spins"])
@@ -265,6 +291,8 @@ def make_on_ws_frame(state):
                     if s["new_since_save"] >= 25:
                         save_spins(s["spins"])
                         s["new_since_save"] = 0
+                        if s.get("flush_obs"):
+                            s["flush_obs"](s)
             except Exception:
                 pass
     return on_ws_frame
@@ -329,7 +357,22 @@ async def collect_loop():
             spins = []
 
     state = {"spins": spins, "last_game_id": last_game_id,
-             "new_since_save": 0, "ws_captured": 0}
+             "new_since_save": 0, "ws_captured": 0,
+             "obs_buffer": [], "session_ok": False}
+
+    # v3: integrity layer — schema + session. Failure degrades gracefully:
+    # the canonical capture path continues without the audit trail.
+    state["session_id"] = None
+    try:
+        sconn = schema.connect()
+        schema.ensure_schema(sconn)
+        state["session_id"] = observer.start_session(sconn, source="cdp-ws")
+        observer.log_event(sconn, "SESSION_START",
+                           details={"resumed_spins": len(spins),
+                                    "last_game_id": last_game_id})
+        sconn.close()
+    except Exception as e:
+        print(f"  [INTEGRITY] session init failed (continuing without it): {e}")
 
     on_frame = make_on_ws_frame(state)
 
@@ -359,6 +402,16 @@ async def collect_loop():
                             text = text.strip()
                             if text and text != last_dom_result:
                                 last_dom_result = text
+                                # v3: DOM observation (no game_id — number only)
+                                m = re.search(r"\d+", text)
+                                num = int(m.group()) if m and 0 <= int(m.group()) <= 36 else None
+                                state["obs_buffer"].append({
+                                    "source": "dom",
+                                    "session_id": state["session_id"],
+                                    "number": num,
+                                    "description": text[:200],
+                                    "raw_payload": f"{sel}: {text[:200]}",
+                                })
                                 print(f"  [DOM] Found element '{sel}': '{text}'")
                                 return
                     except Exception:
@@ -419,43 +472,82 @@ async def collect_loop():
         last_spin_count = len(spins)
         dom_poll_count = 0
 
-        while (time.time() - start_time) < SESSION_DURATION:
-            await asyncio.sleep(5)
-            elapsed = time.time() - start_time
+        def flush_obs(s):
+            """Batch-persist buffered observations. Never raises — the
+            canonical capture path must not depend on the audit trail."""
+            if not s["obs_buffer"] or s["session_id"] is None:
+                s["obs_buffer"].clear()
+                return 0
+            try:
+                sconn = schema.connect()
+                n = observer.flush_observations(sconn, s["obs_buffer"])
+                sconn.close()
+                return n
+            except Exception as e:
+                print(f"  [INTEGRITY] obs flush failed: {e}")
+                s["obs_buffer"].clear()
+                return 0
 
-            # DOM poll every 15s while the WS has never produced anything
-            if state["ws_captured"] == 0 and len(spins) == 0:
-                dom_poll_count += 1
-                if dom_poll_count % 3 == 0:
-                    await poll_dom()
+        state["flush_obs"] = flush_obs
 
-            # Stall detection — silence beyond the legit cadence envelope.
-            # 120s threshold: no false fires (max legit ~57s), catches real
-            # stream deaths promptly. Also covers a fresh session that never
-            # produced its first spin (bootstrap watchdog after 4 min).
-            if spins:
-                last_spin_time = spins[-1]["captured_at"]
-                sec_since_last = (datetime.now() - datetime.fromisoformat(last_spin_time)).total_seconds()
-            else:
-                sec_since_last = elapsed
-            if sec_since_last > STALL_THRESHOLD_S and (spins or elapsed > 240):
-                print(f"  STALLED — {sec_since_last:.0f}s since last spin. Running recovery ladder...")
-                ok = await recover(len(spins))
-                if not ok:
-                    print("  Recovery ladder failed — stream still silent after full restart. Abandoning session.")
-                    break
+        try:
+            while (time.time() - start_time) < SESSION_DURATION:
+                await asyncio.sleep(5)
+                elapsed = time.time() - start_time
 
-            # Status every 60s
-            if int(elapsed) % 60 < 6:
-                rate = len(spins) / (elapsed / 3600) if elapsed > 0 else 0
-                print(f"  Status: {len(spins)} spins (WS: {state['ws_captured']}), {elapsed/60:.0f}m elapsed, {rate:.1f}/hr")
+                # DOM poll every 15s while the WS has never produced anything
+                if state["ws_captured"] == 0 and len(spins) == 0:
+                    dom_poll_count += 1
+                    if dom_poll_count % 3 == 0:
+                        await poll_dom()
 
-            if len(spins) > last_spin_count:
-                last_spin_count = len(spins)
+                # Stall detection — silence beyond the legit cadence envelope.
+                # 120s threshold: no false fires (max legit ~57s), catches real
+                # stream deaths promptly. Also covers a fresh session that never
+                # produced its first spin (bootstrap watchdog after 4 min).
+                if spins:
+                    last_spin_time = spins[-1]["captured_at"]
+                    sec_since_last = (datetime.now() - datetime.fromisoformat(last_spin_time)).total_seconds()
+                else:
+                    sec_since_last = elapsed
+                if sec_since_last > STALL_THRESHOLD_S and (spins or elapsed > 240):
+                    print(f"  STALLED — {sec_since_last:.0f}s since last spin. Running recovery ladder...")
+                    ok = await recover(len(spins))
+                    if not ok:
+                        print("  Recovery ladder failed — stream still silent after full restart. Abandoning session.")
+                        state["session_ok"] = False
+                        break
 
-        save_spins(spins)
-        hours = (time.time() - start_time) / 3600
-        print(f"  Session ended after {hours:.1f}h — {len(spins)} spins total")
+                # Status every 60s
+                if int(elapsed) % 60 < 6:
+                    rate = len(spins) / (elapsed / 3600) if elapsed > 0 else 0
+                    print(f"  Status: {len(spins)} spins (WS: {state['ws_captured']}), {elapsed/60:.0f}m elapsed, {rate:.1f}/hr")
+
+                if len(spins) > last_spin_count:
+                    last_spin_count = len(spins)
+
+            save_spins(spins)
+            hours = (time.time() - start_time) / 3600
+            print(f"  Session ended after {hours:.1f}h — {len(spins)} spins total")
+            state["session_ok"] = True
+        finally:
+            # v3: flush observations + close the session (ENDED vs CRASHED)
+            try:
+                if state["session_id"]:
+                    sconn = schema.connect()
+                    flush_obs(state)
+                    observer.end_session(
+                        sconn, state["session_id"],
+                        spins_captured=len(spins),
+                        status="ENDED" if state["session_ok"] else "CRASHED",
+                    )
+                    observer.log_event(sconn, "SESSION_END",
+                                       details={"total": len(spins),
+                                                "ws": state["ws_captured"],
+                                                "ok": state["session_ok"]})
+                    sconn.close()
+            except Exception as e:
+                print(f"  [INTEGRITY] session end failed: {e}")
         await browser.close()
         return spins
 
