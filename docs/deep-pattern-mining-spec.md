@@ -724,6 +724,9 @@ detect:
 - out_of_order_spin (a spin whose sequence_number/timestamp breaks the
   canonical chronological ordering — detected and, where the identity
   permits, repaired by minimal-suffix reorder)
+- timestamp_anomaly (implausible timestamps — future timestamps, capture
+  latency beyond bounds, or timestamps inconsistent with the sequence
+  position)
 
 ## Dashboard (required sections)
 
