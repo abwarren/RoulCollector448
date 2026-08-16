@@ -717,7 +717,8 @@ data_integrity:
 - capture latency
 
 #### sequence
-detect: [continues on the next feed fragment]
+detect:
+- missing_spin [continues on the next feed fragment]
 
 ## Dashboard (required sections)
 
