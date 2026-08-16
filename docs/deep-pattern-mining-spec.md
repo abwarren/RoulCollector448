@@ -242,11 +242,12 @@ features (the per-spin feature set the prediction models consume):
 
 cycle_conclusions:
 - requirement: The system must not conclude that because a wheel is
-  balanced or because a [fragment truncated mid-sentence — continues on
-  the next feed: expected completion along the lines of "wheel is
-  balanced, therefore patterns cannot exist" — i.e. a balanced wheel is
-  the NULL, not a conclusion; the system must not reason from the wheel's
-  theoretical balance to dismiss or to assert patterns — paste the exact
+  balanced or because a cycle is incomplete, a particular number is
+  mathematically due. Instead it must [treat the incomplete cycle as a
+  statistical state, not an obligation — an incomplete cycle changes the
+  conditional probability structure only if validated evidence shows it
+  does; "due" is a gambler's fallacy unless the data demonstrates a
+  real effect — fragment continued on the next feed; paste the exact
   wording if it differs]
 
 ## Model learning
