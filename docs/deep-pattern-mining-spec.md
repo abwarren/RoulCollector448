@@ -425,7 +425,8 @@ cli_monitor:
 - autonomy:
   - enabled: true
   - do_not_stop_for_permission: true
-- monitor: [fragment pending — continues on the next feed]
+- monitor:
+  - application: [fragment pending — continues on the next feed]
 
 test:
 - test_sequence_features
