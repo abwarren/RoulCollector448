@@ -525,7 +525,32 @@ investigation (the direct-DB checks):
 - inspect API response ordering
 - compare displayed order against database order
 
-compare: [fragment pending — continues on the next feed]
+compare:
+- database_order_vs_UI_order (the displayed order vs the canonical DB
+  order — the primary comparison; any divergence means the UI is
+  reordering the data)
+- API_order_vs_database_order (is the API serving the DB order verbatim,
+  or transforming it?)
+- timestamp_order_vs_sequence_order (do timestamps agree with
+  sequence_number ordering? a divergence is a data-integrity signal)
+
+detect:
+- exact_repeating_sequence
+- repeating_block
+- overlapping_repeating_block
+- partial_sequence_recurrence
+- reverse_sequence
+- sequential_number_run
+- wheel_relative_recurrence
+- transition_matrix_recurrence
+
+UI_requirement:
+- chronological_view: true
+- description: provide an explicit CHRONOLOGICAL SPIN VIEW showing the
+  actual sequence WITHOUT sorting, grouping, mathematical arrangement, or
+  visual transformation. (The dashboard must offer a raw chronological
+  view — the ground truth the UI-vs-truth audit compares everything
+  against; any other view is explicitly labeled as transformed.)
 
 reconstruct — required outputs:
 - last_500_chronological_spins
