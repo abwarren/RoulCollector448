@@ -549,6 +549,8 @@ The UI must have three clearly separated areas:
 - Status: FROZEN
 
 ### PREDICTION PERFORMANCE
+- Scope: Last 10k predictions (every figure below is measured over the
+  most recent 10,000 frozen predictions — the standard reporting window)
 - Top-1: 3.81% [continues on the next feed fragment]
 - Top-3: 11.4%
 - Log loss: [value pending — continues on the next feed fragment]
