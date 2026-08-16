@@ -476,7 +476,11 @@ cli_monitor:
     - regression_test
     - repeat
   - failure_handling:
-    rule: [fragment pending — continues on the next feed]
+    rule: a failure is an engineering task, not a stopping condition.
+    (Diagnose → fix → retest → continue, per the continuous loop; the
+    only escalation is the autonomy exception: credentials, unavailable
+    resources, destructive operations, or genuinely unknowable
+    requirements.)
 
 test:
 - test_sequence_features
