@@ -967,6 +967,10 @@ operational, tested, and accessible at http://localhost:4480/.
 autonomy:
 - enabled: true
 - non_stop_execution: true
+- rule: do not stop and ask the user for permission between
+  implementation steps. Continue autonomously through the entire
+  development lifecycle.
+- do_not_ask_permission_for: creating files, modifying source code
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
