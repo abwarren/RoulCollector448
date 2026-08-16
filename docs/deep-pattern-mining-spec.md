@@ -280,6 +280,8 @@ application/process — fragment truncated; continues on the next feed]
 
 ## Prediction UI (required)
 
+performance_over_time: [fragment pending — continues on the next feed]
+
 - required: true
 - url: http://localhost:4480/
 - rule: predictions must be visible to the user while remaining
