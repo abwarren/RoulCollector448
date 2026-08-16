@@ -1041,6 +1041,37 @@ must be reachable at exactly http://localhost:4480/. If port 4480 is
 occupied by a stale development process, diagnose and resolve (kill the
 stale process, restart cleanly).
 
+port_conflict_rules:
+- safely resolve the conflict rather than silently selecting another port
+- do NOT declare completion while the application is only available on
+  another port
+- verify the endpoint programmatically before declaring completion
+
+local_deployment:
+- required: true
+- final_verification (all must pass before completion is declared):
+  - start_application
+  - verify_backend_health
+  - verify_frontend_load
+  - verify_database_connection
+  - verify_required_background_services
+  - HTTP GET http://localhost:4480/
+  - verify_expected HTTP status
+  - verify application content
+  - verify critical API endpoints
+  - verify no fatal runtime errors
+  - run final regression suite
+
+autonomous_debugging (the diagnostic toolkit used without asking):
+- read_logs
+- inspect_stack_traces
+- inspect_processes
+- inspect_ports
+- inspect_database_state
+- inspect_network_requests
+- inspect_browser_console_errors
+- inspect_application_health
+
 ## Pattern identity rules
 
 Exact patterns and structurally equivalent patterns must be tracked
