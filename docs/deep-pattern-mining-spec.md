@@ -501,6 +501,16 @@ every_canonical_spin_traceable_to:
 
 ## Discovery-prediction boundary
 
+- prediction_ui_visible: true
+- evaluation_engine_operational: true
+- automated_tests_passing: true
+- prediction_integrity rule: the Prediction Lab must display the live
+  frozen prediction, but displaying the prediction must NEVER allow the
+  actual next result to influence or modify that prediction. (The display
+  is a one-way mirror — read-only onto the frozen record; the outcome
+  lands after the freeze and only feeds the evaluation, never the
+  prediction.)
+
 framing (the three-question distinction that defines the system's shape):
 - Discovery: What has the data discovered?
 - Prediction: What does the independent model predict next?
@@ -1036,6 +1046,12 @@ quality_gate:
   - critical APIs are broken
   - frontend cannot load
   - database cannot connect
+
+completion_rule: do not stop merely because the specification,
+documentation, schemas, or individual modules are complete. Continue until
+the integrated application [is complete, operational, tested, and
+accessible at http://localhost:4480/ — fragment truncated; continues on
+the next feed]
 
 objective: take RoulCollector448 from its current state through
 implementation, integration, testing, debugging, validation, and local
