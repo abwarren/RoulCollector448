@@ -393,6 +393,9 @@ tasks:
 - test_sequence_features
 - test_regime_features
 - test_ensemble_weights
+- run_walk_forward (every candidate's walk-forward evaluation — the
+  mandatory no-leakage harness applied to each challenger before any
+  promotion decision)
 
 ## Champion-challenger
 
