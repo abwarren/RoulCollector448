@@ -837,6 +837,8 @@ steps (repeated indefinitely until the clean-run criteria hold):
 - inspect_database_health
 - inspect_data_integrity
 - inspect_scheduler
+- run_tests (periodically re-run the test suite in the loop — a clean
+  run must stay clean as the system runs, not just at build time)
 
 ### regression (after every fix)
 - rerun_failed_test
