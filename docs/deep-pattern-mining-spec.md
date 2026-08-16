@@ -213,7 +213,49 @@ every prediction should record:
 
 ## Blind prediction evaluation
 
-objective: >
+objective: determine whether the prediction engine provides GENUINE
+predictive information and whether performance improves, remains stable,
+or decays over time (persistence/changes measured across the walk-forward
+timeline, feeding the assumption-ledger triggers: prediction_failure,
+out_of_sample_failure, statistical_significance_loss).
+
+mandatory_evaluation (every model version is scored on ALL of these):
+- top_1_accuracy
+- top_3_accuracy
+- top_5_accuracy
+- top_10_accuracy
+- log_loss
+- brier_score
+- calibration (reliability: do predicted probabilities match observed
+  frequencies?)
+- confidence_intervals
+- effect_size
+- baseline_comparison (vs the baselines below — the ONLY way "genuine
+  predictive information" is established)
+
+baseline:
+- uniform_probability_per_number: 0.027027027 (37 outcomes → ~2.70% per
+  spin; a single-number uniform baseline. Every claimed improvement must
+  beat this AND the other baselines (historical/recent frequency, simple
+  markov) with a material effect size and a CI that excludes the null.)
+
+prediction_record (the frozen per-prediction row — written BEFORE the
+outcome, then the outcome columns filled in after the spin lands):
+- prediction_id
+- prediction_timestamp
+- model_version
+- model_components
+- probability_distribution
+- top_1
+- top_3
+- top_5
+- actual_number
+- top_1_hit
+- top_3_hit
+- top_5_hit
+- top_10_hit
+- log_loss
+- brier_score
 
 Assumption ledger entries carry: assumption_id, supporting_dataset,
 sample_size, confidence. States include WEAKENING, CONTRADICTED.
