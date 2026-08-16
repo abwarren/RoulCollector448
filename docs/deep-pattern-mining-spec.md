@@ -619,6 +619,46 @@ the integrated system is running, tested, monitored, reconciled, and
 demonstrably operational at http://localhost:4480/. (P013 — no premature
 completion.)
 
+## System components
+
+- data_integrity
+- canonical_dataset
+- reconciliation
+- feature_extraction
+- pattern_discovery
+- cycle_discovery
+- nested_cycle_discovery
+- regime_discovery
+- statistical_validation
+- prediction_engine
+- prediction_evaluation
+- optimization_agent
+- research_ledger
+- dashboard
+- scheduler
+- cli_monitor
+
+## Three-system boundary (P002 architecture)
+
+three_system_boundary:
+
+### discovery — question: "What has the data discovered?"
+responsibilities:
+- discover patterns
+- discover sequences
+- discover neighbour structures
+- discover cycles
+- discover overlapping cycles
+- discover cycles within cycles
+- discover regimes
+- discover recurring structures
+- generate hypotheses
+- validate hypotheses
+
+### prediction — question: "What does the independent model predict next?"
+responsibilities:
+- generate probability distribution [continues on the next feed]
+
 ## Dashboard (required sections)
 
 ### data_integrity — show:
