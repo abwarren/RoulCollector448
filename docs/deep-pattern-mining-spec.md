@@ -327,7 +327,8 @@ monte_carlo:
   it produces apparent signal — that rate calibrates every discovery
   threshold.)
 
-simulations: [fragment pending — continues on the next feed]
+simulations:
+- configurable: true [continues on the next feed fragment]
 
 test:
 - test_sequence_features
