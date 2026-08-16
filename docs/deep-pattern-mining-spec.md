@@ -787,6 +787,7 @@ integrity_status:
   - HEALTHY
   - DEGRADED [continues on the next feed fragment]
   - WARNING
+  - CRITICAL
 
 ## Dashboard (required sections)
 
