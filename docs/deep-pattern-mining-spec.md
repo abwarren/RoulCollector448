@@ -499,6 +499,17 @@ every_canonical_spin_traceable_to:
 - out_of_order_spin
 - source_disagreement
 
+## Discovery-prediction boundary
+
+- rule: predictions, once generated, are immutable. New data may change
+  future predictions, but must NEVER rewrite previous predictions (the
+  frozen pre-spin record is the only admissible prediction — P003).
+- discovery_prediction_boundary: the discovery engine may produce
+  validated features that the prediction engine can use, but the
+  prediction engine must consume them through a versioned, timestamped
+  interface. Prediction-time data must be frozen and auditable.
+- prediction: [continues on the next feed fragment]
+
 ## Self-critical adaptive learning
 
 ## Confidence decay
