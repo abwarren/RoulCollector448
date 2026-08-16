@@ -633,7 +633,20 @@ scale_note: at 10,000 spins the [scheduled jobs / reconciliation windows
 continue to operate identically — fragment truncated; continues on the
 next feed]; extended to 50,000 spins (the rolling-500 window, repair
 window, and job cadences remain unchanged as the dataset grows — the
-integrity machinery is window-bound, not dataset-bound)
+integrity machinery is window-bound, not dataset-bound); extended to
+100,000 spins — the same window-bound behaviour holds at every scale.
+
+loop_significance_rule: for every detected loop candidate, ask: does the
+same loop recur significantly more often than it would in randomized
+sequences? 
+- If YES → that is a legitimate discovery candidate (proceed through the
+  validation contract: raw chronological order, random baseline,
+  statistical significance, out-of-sample).
+- If it only appears because the UI is arranging the numbers sequentially
+  (a display-order / row-column artifact) → the system must identify that
+  and REJECT it (the sequence-geometry detector's attribution decides:
+  a loop that exists only in displayed/geometry order is a display
+  anomaly, never a temporal discovery).
 
 ## Sequence loop detection
 
