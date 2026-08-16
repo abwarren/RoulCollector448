@@ -373,6 +373,9 @@ information and model components that influenced its probability
 distribution.
 
 output: [continues in the next feed fragment]
+- top_predicted_numbers (the top-N numbers from the probability
+  distribution with their probabilities — the headline of any
+  explanation: what the model actually predicted)
 
 ## Model learning
 
