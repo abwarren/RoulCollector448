@@ -541,6 +541,8 @@ prediction:
 scheduler:
 - jobs registered [continues on the next feed fragment]
 - jobs execute (a job actually runs on schedule and completes)
+- job failures detectable (a failed execution surfaces in the job
+  history + observability — failures must be visible, not silent)
 
 test:
 - test_sequence_features
