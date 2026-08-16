@@ -886,6 +886,40 @@ assumption, the system must prefer changing the assumption over forcing
 the new data to fit the old assumption. (The data is the ground truth;
 the assumption yields — P005's decision rule in one sentence.)
 
+## Anti-confirmation bias
+
+requirements (the structural anti-bias guarantees):
+- actively_search_for_negative_evidence (the system must look FOR
+  disconfirming evidence, not wait for it to arrive)
+- track_failed_predictions (failures are recorded and analyzed, never
+  dropped)
+- track_failed_patterns (patterns that failed validation are kept and
+  counted)
+- track_rejected_hypotheses (rejected hypotheses remain as research data)
+- test_competing_explanations (alternatives are tested, not ignored)
+- avoid_selective_reporting (the dashboard and ledger show failures
+  alongside successes — no cherry-picking)
+- display_conflicting_evidence (contradictions are surfaced, not hidden)
+
+## Self-criticism dashboard
+
+display:
+- strongest_current_assumptions
+- assumptions_under_pressure
+- contradictory_evidence
+- models_improving
+- models_decaying
+- patterns_reactivated
+- patterns_rejected
+- recent_concept_drift
+- recent_prediction_failures
+- new_hypotheses
+- old_hypotheses_replaced
+
+ultimate_rule: the system must be designed to change its mind. New
+verified evidence must be [able to overturn any conclusion — fragment
+truncated; continues on the next feed]
+
 ## Learning from failure
 
 requirement: prediction failures must be treated as INFORMATION about the
