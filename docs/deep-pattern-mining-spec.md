@@ -226,10 +226,10 @@ statuses: STABLE, IMPROVING, DECAYING, FAILED
 
 ### regime_specific_performance
 requirement: measure each model INDEPENDENTLY BY REGIME rather than
-assuming a model has [uniform performance across regimes — completes as:
-a single global score. A model may be excellent in one regime and noise in
-another; only regime-conditional performance justifies regime-conditional
-weighting.]
+assuming a model has constant performance across all historical
+conditions. A model may be excellent in one regime and noise in another;
+only regime-conditional performance justifies regime-conditional
+weighting.
 
 ### baseline (the simplest comparators — every specialist/ensemble claim
 must beat these, per P004)
