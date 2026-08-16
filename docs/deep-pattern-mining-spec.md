@@ -935,7 +935,33 @@ testing:
 
 ### soak_test
 required: true
-objective: >
+objective: [fragment pending — continues on the next feed]
+
+logging — record per monitoring cycle:
+- timestamp
+- health_state
+- detected_problem
+- diagnosis
+- action_taken
+- result
+- test_result
+- remaining_problem
+
+final_status — possible states:
+- BUILDING (implementation in progress)
+- TESTING (verification in progress)
+- DEGRADED (a problem detected, being handled)
+- RECOVERING (a fix applied, re-verifying)
+- STABLE (all checks passing)
+- CLEAN (the full clean-state matrix holds + soak has held)
+
+clean_requires (the CLEAN state demands all six):
+- application operational
+- scheduled jobs operational
+- data integrity healthy
+- critical tests passing
+- prediction separation verified
+- no critical runtime errors
 
 ### regression (after every fix)
 - rerun_failed_test
