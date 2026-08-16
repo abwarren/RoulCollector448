@@ -265,6 +265,10 @@ response:
   - promotion_status (the champion-challenger verdict: not-promoted /
     promoted / promoted-then-decayed — with the evidence that drove the
     decision)
+  - reason_for_change (why this version differs from its parent — new
+    features, weight changes, retraining window, architecture, or a
+    failure-driven challenger promotion; the audit trail of the model's
+    evolution)
 
 champion_challenger:
 - enabled: true
