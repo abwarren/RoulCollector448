@@ -648,6 +648,8 @@ mathematical reformatting. (The raw sequence as it actually occurred —
 the ground-truth view the UI-vs-truth audit compares all other views
 against; any transformed view must be explicitly labeled as such.)
 
+### prediction_lab: [fragment pending — continues on the next feed]
+
 test:
 - test_sequence_features
 - test_regime_features
