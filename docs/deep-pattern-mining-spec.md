@@ -749,6 +749,9 @@ show:
 - multiple testing (the FDR/BH correction applied to scanned candidates —
   verifying that the discovery engine's significance claims survive
   multiple-testing control)
+- walk forward leakage (the adversarial check: prove the walk-forward
+  harness cannot leak future data — deliberately attempt leakage and
+  verify the freeze prevents it)
 
 test:
 - test_sequence_features
