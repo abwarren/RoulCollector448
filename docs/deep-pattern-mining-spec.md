@@ -1117,6 +1117,9 @@ show:
 - recent experiments
 - accepted improvements
 - rejected improvements
+- model decay (the decay-detection signal for the production model —
+  surfaced here so deterioration is visible before it forces a
+  challenger promotion)
 
 ### self_criticism — title: "SELF-CRITICAL RESEARCH"
 show:
