@@ -173,6 +173,46 @@ ensemble:
     persisted, and locked)
   - model_version (the exact immutable version that produced the
     prediction — traceable via the model registry)
+  - cycle_id
+  - probability_distribution
+  - top_1
+  - top_3
+  - top_5
+  - top_10
+  - confidence
+  - status
+
+### prediction statuses
+- GENERATED
+- FROZEN
+- AWAITING_RESULT
+- EVALUATED
+
+### no_signal_state
+- enabled: true
+- rule: if no validated model provides meaningful evidence above
+  baseline, return probabilities toward the appropriate baseline and
+  EXPLICITLY report that no validated predictive signal is currently
+  detected. (P010 — the system may conclude there is no signal; the
+  baseline default is honest, never a fabricated edge.)
+
+## Prediction evaluation
+
+prediction_evaluation:
+- objective: measure whether predictions provide genuine information and
+  whether performance improves as the verified dataset grows.
+
+### metrics
+accuracy:
+- Top-1
+- Top-3
+- Top-5
+- Top-10
+probability:
+- log_loss
+- Brier_score
+- calibration
+statistical: [continues on the next feed fragment]
 
 ## Prediction lock
 
