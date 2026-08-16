@@ -260,4 +260,7 @@ sequence_activity, entropy, cycle_fingerprint.
 coverage_points: 10, 20, 25, 30, 32, 34, 35, 36, 37 (the milestones a
 cycle's coverage curve is sampled at).
 
-cycle_analysis: cycle_length_distribution, cycle_similarity.
+cycle_analysis: cycle_length_distribution, cycle_similarity,
+cycle_fingerprint_similarity (similarity of full cycle fingerprints —
+coverage curve + velocity + duplicate rate + colour distribution + entropy
++ activity metrics — between cycles, the basis for cycle-family clustering).
