@@ -692,6 +692,8 @@ instance is still running. (The overlap lock guarantees single-flight
 execution: if a job exceeds its cadence, the tick is skipped and the
 overlap logged — never double-run.)
 
+### failure_recovery: [fragment pending — continues on the next feed]
+
 ### clean_run_criteria (what "clean and stable" means — checked repeatedly)
 - latest 500 spins reconciled
 - no unresolved critical data gaps
