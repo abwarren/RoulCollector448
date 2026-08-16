@@ -243,12 +243,65 @@ features (the per-spin feature set the prediction models consume):
 cycle_conclusions:
 - requirement: The system must not conclude that because a wheel is
   balanced or because a cycle is incomplete, a particular number is
-  mathematically due. Instead it must [treat the incomplete cycle as a
-  statistical state, not an obligation — an incomplete cycle changes the
-  conditional probability structure only if validated evidence shows it
-  does; "due" is a gambler's fallacy unless the data demonstrates a
-  real effect — fragment continued on the next feed; paste the exact
-  wording if it differs]
+  mathematically due. Instead it must measure whether cycle position or
+  cycle structure has historically changed the conditional distribution
+  of the next outcome. ("Due" is a gambler's fallacy until validated
+  evidence shows a real conditional effect.)
+
+required_comparison (how the cycle/prediction claim is established):
+- cycle_feature_present_vs_absent (same data, cycle features on vs off)
+- cycle_phase_comparison (across cycle positions/phases)
+- cycle_to_cycle_comparison (across different cycles)
+- nested_cycle_comparison (with vs without nested-cycle features)
+- random_baseline_comparison (vs simulated fair data)
+- out_of_sample_prediction_performance (the only acceptance test)
+
+## Entropy and information
+
+metrics:
+- number_entropy
+- transition_entropy
+- colour_entropy
+- neighbour_entropy
+- wheel_distance_entropy
+- pattern_entropy
+- regime_entropy
+
+purpose: detect periods where activity becomes more CONCENTRATED or more
+DISTRIBUTED than the relevant baseline.
+
+rule: entropy changes are DESCRIPTIVE signals and must be independently
+validated before being treated as predictive features (no entropy-based
+edge is claimed without its own validation).
+
+## Return time analysis
+
+track (the intervals being measured):
+- number_return_time
+- pair_return_time
+- sequence_return_time
+- neighbour_cluster_return_time
+- colour_run_return_time
+- cycle_return_time
+
+analyze (per tracked interval):
+- mean
+- median
+- variance
+- distribution
+- clustering
+- short_returns
+- long_returns
+- historical_comparison
+
+## Pattern reactivation
+
+objective: detect when a historically observed pattern becomes active
+again after a period of inactivity.
+
+record:
+- pattern_id
+- previous_activation_period
 
 ## Model learning
 
