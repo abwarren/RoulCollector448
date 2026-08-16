@@ -526,6 +526,36 @@ rule: never infer a temporal pattern solely from the visual arrangement of
 rows — e.g. "9 8 7 6 5 3 2 1 0 36 35 34 33 32 ..." descending display order
 must never be mistaken for the actual chronological order of outcomes.
 
+### record (per detected candidate)
+- statistical_significance
+- out_of_sample_performance
+- status
+
+### statuses (candidate lifecycle)
+- DISCOVERED (flagged as worth investigating — a candidate, NOT yet a
+  loop)
+- UNDER_VALIDATION (raw chronological extraction + baseline comparison in
+  progress)
+- RECURRING (recurrence observed in the raw order, still being tested)
+- VALIDATED (passed random-baseline + out-of-sample validation)
+- DECAYING (recurrence weakening)
+- REJECTED (failed validation — recorded, never deleted)
+
+### two_representations (mandatory data model)
+The system MUST maintain two distinct representations of the data:
+- RAW CHRONOLOGICAL SEQUENCE (the actual spin order, e.g.
+  "32 33 34 35 ..." — the ground truth the loop detector operates on;
+  the visual grid is NEVER chronological data)
+- PATTERN ENGINE representations (the transformed views the detector
+  searches): exact sequence, wheel-relative sequence, neighbour sequence,
+  cycle, nested cycle
+
+methodology: a visually strong structural repetition (e.g. repeated
+"... 34 33 32 ..." blocks and 34→33→32→31 transitions in the display) is
+flagged as a pattern WORTH INVESTIGATING — never called a "roulette loop"
+until the raw chronological sequence is extracted and the candidate
+passes the validation contract above.
+
 - prediction_ui_visible: true
 - evaluation_engine_operational: true
 - automated_tests_passing: true
