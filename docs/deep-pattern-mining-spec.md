@@ -1608,6 +1608,33 @@ does NOT constitute CLEAN status — CLEAN is a RUNTIME property, earned
 only by the monitored system holding every clean-state criterion under
 observation.
 
+A clean status requires ALL of: successful runtime verification,
+data-integrity verification, scheduler verification, prediction-pipeline
+verification, regression testing, and successful access to
+http://localhost:4480/.
+
+### final_report
+- only_when_clean: true (no completion report before CLEAN)
+- include:
+  - application status
+  - localhost:4480 status
+  - process status
+  - scheduler status
+  - data-integrity status
+  - test results
+  - prediction pipeline status
+  - errors encountered
+  - fixes applied
+  - remaining non-critical warnings
+
+### final_instruction
+Stay attached to the CLI development environment and actively monitor the
+project. Do not simply report failures. Fix them. Do not stop after the
+first successful build. Continue through runtime testing, scheduled-job
+testing, data reconciliation, prediction testing, regression testing, and
+soak testing. The task is complete ONLY when RoulCollector448 is
+demonstrably clean and operational at http://localhost:4480/.
+
 objective: take RoulCollector448 from its current state through
 implementation, integration, testing, debugging, validation, and local
 deployment. Continue working until the application is complete,
