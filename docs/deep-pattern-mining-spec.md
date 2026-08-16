@@ -740,6 +740,8 @@ data — monitor:
 - verify source agreement [continues on the next feed fragment]
 - verify collector health
 - verify database consistency
+- verify no gaps have been introduced [continues on the next feed
+  fragment]
 
 ### regression (after every fix)
 - rerun_failed_test
