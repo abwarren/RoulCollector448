@@ -851,7 +851,35 @@ local_deployment:
   - run soak test
 - final_completion_rule:
   - do_not_stop_until:
-    - application is fully implemented [continues on the next feed]
+    - application is fully implemented
+    - all critical requirements are operational
+    - latest 500 data are verified/reconciled
+    - chronological data view is verified
+    - deep pattern mining is operational
+    - cycle-within-cycle analysis is operational
+    - regime detection is operational
+    - self-critical learning is operational
+    - prediction engine is independent
+    - prediction is visible
+    - prediction is frozen before each result
+    - prediction accuracy is being tracked
+    - optimization CLI agent is running
+    - scheduler is running
+    - CLI monitor reports CLEAN
+    - tests pass
+    - soak test passes
+    - application is accessible at http://localhost:4480/
+
+final_instruction: continue AUTONOMOUSLY until the complete RoulCollector448
+system reaches CLEAN status. Do not stop after documentation,
+specification, compilation, or individual module completion. If a problem
+is discovered, diagnose it, fix it, test it, and continue. If new data
+contradicts an assumption, change the assumption and retest. If a model
+performs poorly, challenge it, improve it, replace it, or retire it. If a
+pattern disappears, record its decay rather than forcing it to remain
+valid. If a new pattern appears, test it from first principles. The system
+must continuously learn from verified evidence while keeping discovery,
+prediction, and evaluation separate.
 
 test:
 - test_sequence_features
