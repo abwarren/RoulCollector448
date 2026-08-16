@@ -201,6 +201,8 @@ performance_over_time: [fragment pending — continues on the next feed]
 
 ## Champion-challenger
 
+failure_analysis: [fragment pending — continues on the next feed]
+
 champion_challenger:
 - enabled: true
 - champion: the current production model
