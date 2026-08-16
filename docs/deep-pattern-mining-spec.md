@@ -213,7 +213,44 @@ every prediction should record:
 
 ## Blind prediction evaluation
 
-walk_forward: [fragment pending — continues on the next feed]
+walk_forward:
+- enabled: true
+- rule: training and discovery information must ALWAYS precede the
+  prediction. No future observations may leak into feature generation,
+  model selection, weighting, or hyperparameter selection (P003 — the
+  walk-forward discipline makes leakage structurally impossible).
+- workflow:
+  1. train_on_available_history (only data before the prediction point)
+  2. freeze_model (the exact trained state, versioned)
+  3. generate_next_spin_prediction
+  4. freeze_prediction (timestamped, persisted pre-spin)
+  5. observe_actual_spin
+  6. score_prediction (top-N hits, log loss, brier, calibration)
+  7. append_result (to the prediction record + performance tracking)
+  8. retrain_or_update (only with data now available — never the just-
+     scored future beyond this point)
+  9. repeat
+
+data_splits:
+- default: discovery 0.70 / validation 0.15 / out_of_sample 0.15
+- rule: exact proportions may change for rolling time-series validation,
+  but future data must NEVER be used to improve a model before that
+  future period is evaluated.
+
+performance_tracking:
+- measure_over: 100 / 500 / 1000 / 5000 / 10000 / 25000 / 50000 /
+  100000 predictions, all_available
+- track:
+  - rolling_accuracy
+  - cumulative_accuracy
+  - baseline_difference (vs uniform-37 + the other baselines)
+  - rolling_log_loss
+  - rolling_brier_score
+  - calibration
+  - confidence_interval
+  - model_weight (ensemble weights over time — drift visible)
+  - model_decay (per-model performance decay, the DECAYING signal)
+
 objective: determine whether the prediction engine provides GENUINE
 predictive information and whether performance improves, remains stable,
 or decays over time (persistence/changes measured across the walk-forward
