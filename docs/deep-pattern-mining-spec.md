@@ -482,8 +482,63 @@ cli_monitor:
     resources, destructive operations, or genuinely unknowable
     requirements.)
   - actions:
-    - diagnose [continues on the next feed fragment]
+    - diagnose
     - fix (apply the safe minimal repair per the diagnosis)
+    - restart
+    - retest
+    - continue
+  - never_destroy:
+    - immutable_raw_data (raw observations are immutable — P001/P009)
+    - historical_predictions (frozen prediction records are immutable)
+    - research_ledger (the scientific record is append-only)
+
+## Soak test
+
+soak_test:
+- required: true
+- checks:
+  - HTTP health
+  - process health
+  - database health
+  - collector health
+  - data ingestion
+  - reconciliation
+  - scheduler
+  - API
+  - frontend
+  - prediction pipeline
+  - logs
+
+### clean_state
+
+application:
+- localhost:4480 responds
+- frontend loads
+- backend healthy
+- database connected
+- workers operational
+
+data:
+- latest 500 reconciled
+- no critical unresolved gaps
+- no unexplained duplicates
+- chronological sequence valid
+
+analytics:
+- pattern engine operational
+- cycle engine operational
+- nested cycle engine operational
+- regime engine operational
+- statistical validation operational
+
+prediction:
+- prediction engine operational
+- prediction visible
+- prediction frozen before result
+- prediction evaluation operational
+- no leakage
+
+scheduler: [continues on the next feed fragment]
 
 test:
 - test_sequence_features
