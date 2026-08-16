@@ -978,7 +978,22 @@ autonomy:
   where safe and appropriate, implementing APIs, implementing frontend
   components, implementing background workers, implementing data
   reconciliation, implementing pattern mining, implementing cycle
-  detection
+  detection, implementing regime detection, implementing prediction
+  evaluation, performing local backtesting, performing Monte-Carlo
+  testing, running linting, running type checks, running integration
+  tests, fixing discovered defects, restarting failed services,
+  re-running failed tests after fixes
+
+exception: ask the user only when an action requires information,
+credentials, authorization, an external service, or a decision that
+cannot reasonably be inferred or safely completed autonomously.
+
+completion_definition — the application is NOT complete until:
+- backend is implemented
+- frontend is implemented
+- database layer is operational
+- data integrity layer is operational
+- 500-spin reconciliation is operational
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
