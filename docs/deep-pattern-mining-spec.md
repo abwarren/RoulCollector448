@@ -660,8 +660,10 @@ purpose:
 - recalculate validated model weights
 - challenge active assumptions
 - test new evidence against existing hypotheses
+- search for contradictory evidence (the contradiction engine's hourly
+  sweep — actively hunt for evidence against the strongest conclusions)
 
-#### deep_analysis — every 6 hours
+#### deep_research — 0 */6 * * * (every 6 hours)
 purpose:
 - run larger historical analysis
 - run cycle-within-cycle analysis
