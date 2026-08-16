@@ -791,6 +791,50 @@ integrity_status:
   - UNVERIFIED (a row that could not be verified or repaired — the
     refused-repair terminal state, per the §25 gates)
 
+## Capture reliability
+
+capture_reliability:
+- requirements:
+  - websocket_capture
+  - DOM_capture
+  - source_identity
+  - capture_latency
+  - collector_watchdog
+  - browser_recovery
+  - data_health_watchdog
+
+## Recovery ladder
+
+recovery:
+- steps:
+  - detect_failure
+  - cross_source_validation
+  - reconcile_recent_history
+  - rearm_connection
+  - refresh_game
+  - reload_page
+  - restart_browser
+  - restart_collector
+  - create_unresolved_incident
+- success_definition: recovery is successful ONLY after verified data
+  ingestion and reconciliation return to a healthy state. (Not merely
+  "process/browser alive" — the integrity state must be healthy.)
+
+## Chronological sequence audit
+
+chronological_sequence_audit:
+- priority: "HIGH"
+- objective: determine whether apparent loops, ordered sequences,
+  repeated blocks, or visual structures are GENUINE chronological
+  roulette patterns or merely artifacts of sorting, pagination,
+  rendering, row construction, or UI layout.
+- mandatory_rule: never infer a temporal pattern from the visual grid
+  alone. ALWAYS reconstruct the actual chronological sequence from
+  canonical database records.
+- reconstruct:
+  - last_500_chronological_spins
+  - last_1000_chronological_spins [continues on the next feed fragment]
+
 ## Dashboard (required sections)
 
 ### data_integrity — show:
