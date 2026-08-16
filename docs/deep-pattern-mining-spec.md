@@ -245,6 +245,8 @@ outcome, then the outcome columns filled in after the spin lands):
 - prediction_timestamp
 - model_version
 - model_components
+- regime (the current regime at prediction time — regime-conditional
+  context frozen into the record, mirroring prediction_output.current_regime)
 - probability_distribution
 - top_1
 - top_3
