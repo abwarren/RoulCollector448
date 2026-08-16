@@ -842,6 +842,9 @@ steps (repeated indefinitely until the clean-run criteria hold):
 - identify_failures (after each inspection/test pass, consolidate what
   failed — test failures, health violations, integrity anomalies — into
   a prioritized fix list; feeds the diagnose → fix → retest cycle)
+- diagnose_root_cause (for each identified failure, trace to the root
+  cause before fixing — logs, stack traces, state inspection — per the
+  autonomous_debugging toolkit; no patch without a diagnosis)
 
 ### regression (after every fix)
 - rerun_failed_test
