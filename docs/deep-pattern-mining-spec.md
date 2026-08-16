@@ -918,9 +918,9 @@ display:
 
 ultimate_rule: the system must be designed to change its mind. New
 verified evidence must be able to alter pattern definitions, cycle
-interpretations, regime boundaries, [and every other conclusion — fragment
-continues; expected completion along the lines of: "and model conclusions
-— nothing is beyond revision. Paste the exact tail if it differs]
+interpretations, regime boundaries, model weights, prediction strategies,
+and previously accepted conclusions. (Nothing is beyond revision —
+P005 as the system's ultimate rule.)
 
 ## Learning from failure
 
