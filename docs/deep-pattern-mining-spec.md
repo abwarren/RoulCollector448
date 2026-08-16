@@ -717,6 +717,25 @@ display:
 - jobs skipped_due_to_lock
 - data_gaps_detected
 
+### scheduler verification (agent must verify, not just install)
+- verify successful completion (at least one real job execution completes
+  successfully)
+- verify logs (job history shows the executions with start/completion/
+  duration/success)
+- verify database changes (a completed reconciliation actually wrote its
+  expected state)
+- verify locking (two overlapping instances do not run — the lock holds)
+- verify failure handling (a forced failure is recorded, retried where
+  safe, and does not halt the schedule or corrupt data)
+- verify application dashboard reports scheduler health (the observability
+  panel reflects the scheduler state)
+
+### completion_requirement
+Do not declare RoulCollector448 complete until the scheduled reconciliation
+system is installed, registered, tested, and demonstrably running. The
+application must remain available at http://localhost:4480/ while the
+[scheduled jobs operate — fragment truncated; continues on the next feed]
+
 ### clean_run_criteria (what "clean and stable" means — checked repeatedly)
 - latest 500 spins reconciled
 - no unresolved critical data gaps
