@@ -550,6 +550,8 @@ The UI must have three clearly separated areas:
 
 ### PREDICTION PERFORMANCE
 - Top-1: 3.81% [continues on the next feed fragment]
+- Baseline: 2.70% (the uniform single-number baseline — shown alongside
+  every performance figure so the edge over random is always visible)
 
 ## Self-critical adaptive learning
 
