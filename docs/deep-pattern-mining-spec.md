@@ -372,9 +372,59 @@ purpose:
 
 ### pattern_refresh — every 15 minutes
 purpose:
-- process new verified spins [continues on the next feed fragment]
+- process new verified spins
 - update patterns
 - update cycles
+- update nested cycles
+- update regimes
+- detect activation/decay/reactivation
+
+### prediction_evaluation — every minute
+purpose:
+- evaluate newly completed predictions
+- update metrics
+- update graphs
+
+### model_research — hourly
+purpose:
+- evaluate models
+- challenge assumptions
+- detect decay
+- compare candidates
+
+### deep_research — every 6 hours
+purpose:
+- large historical analysis
+- cycle-within-cycle analysis
+- Monte-Carlo
+- multiple-testing analysis
+- candidate model research
+
+### requirements (all jobs)
+- independent of frontend
+- survives browser closure
+- survives frontend restart
+- logging
+- locking
+- failure detection
+- safe retry
+
+### lock
+- required: true
+- rule: prevent simultaneous execution of the same scheduled job.
+  (Single-flight — a tick that finds its job still running skips and
+  logs rather than double-running.)
+
+## CLI monitoring agent
+
+cli_monitor:
+- name: "RoulCollector448 Clean-Run Monitor"
+- role: "Autonomous CLI QA, Runtime and Deployment Monitor"
+- objective: continuously monitor the complete system until it reaches a
+  GENUINELY clean operational state.
+- autonomy:
+  - enabled: true
+  - do_not_stop_for_permission: true [continues on the next feed]
 
 test:
 - test_sequence_features
