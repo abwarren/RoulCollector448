@@ -374,6 +374,7 @@ purpose:
 purpose:
 - process new verified spins [continues on the next feed fragment]
 - update patterns
+- update cycles
 
 test:
 - test_sequence_features
