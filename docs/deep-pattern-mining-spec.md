@@ -752,6 +752,8 @@ show:
 - walk forward leakage (the adversarial check: prove the walk-forward
   harness cannot leak future data — deliberately attempt leakage and
   verify the freeze prevents it)
+- out of sample (promoted claims must reproduce on held-out data beyond
+  the discovery window — the P007 gate as a repeatable test)
 
 test:
 - test_sequence_features
