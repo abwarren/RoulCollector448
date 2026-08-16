@@ -137,9 +137,30 @@ Example:
 
 ## Prediction engine
 
-Objective: predict the probability distribution of the next roulette
+objective: predict the probability distribution of the next roulette
 outcome using only information available before that outcome occurs
 (P003: blind and out-of-sample).
+
+mandatory_rule: EVERY prediction must be generated, timestamped, frozen,
+and persisted BEFORE the actual next spin is observed. A prediction that
+is created or modified after the outcome is visible is void — the frozen
+pre-spin record is the only admissible prediction (this is the P003
+enforcement at the storage level: no post-hoc prediction can ever enter
+the ledger).
+
+prediction_output:
+- all_37_probabilities: true (the output is a full 37-way distribution
+  over 0-36, never a single number)
+- required fields:
+  - prediction_id
+  - timestamp
+  - model_version
+  - current_regime
+  - current_cycle
+  - feature_snapshot
+  - probability_distribution
+  - top_1
+  - top_3
 
 ## Self-critical adaptive learning
 
