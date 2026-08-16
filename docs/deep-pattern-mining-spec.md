@@ -754,6 +754,55 @@ show:
   verify the freeze prevents it)
 - out of sample (promoted claims must reproduce on held-out data beyond
   the discovery window — the P007 gate as a repeatable test)
+- model decay
+- regime change
+- prediction calibration
+- challenger validation (the champion-challenger harness's own tests:
+  promotion conditions verified end-to-end)
+
+## Acceptance criteria
+
+### data
+- latest 500 continuously reconciled
+- recoverable gaps automatically repaired
+- raw observations preserved (immutable — P001/P009)
+- repair history auditable
+- chronological order verified
+
+### discovery
+- patterns discovered without hard-coded conclusions (no predetermined
+  pattern definitions smuggled in — P004)
+- neighbour mining operational
+- pair mining operational
+- sequence mining operational
+- repeat mining operational
+- wheel-relative analysis operational
+- coverage cycles operational
+- overlapping cycles operational
+- nested cycles operational
+- regime detection operational
+- pattern reactivation operational
+
+### prediction
+- next-spin prediction generated
+- prediction frozen before actual result
+- prediction visible at localhost:4480
+- all 37 probabilities stored
+- Top-1/3/5/10 tracked
+- log loss tracked
+- Brier tracked
+- calibration tracked
+- baseline comparison tracked
+- walk-forward validation operational
+
+### optimization
+- accuracy continuously tracked
+- prediction failures analysed
+- candidate improvements tested
+- champion/challenger system operational
+- only validated improvements promoted
+- model decay detected
+- self-critical assumption changes recorded
 
 test:
 - test_sequence_features
