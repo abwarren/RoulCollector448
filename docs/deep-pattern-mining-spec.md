@@ -280,7 +280,16 @@ application/process — fragment truncated; continues on the next feed]
 
 ## Prediction UI (required)
 
-performance_over_time: [fragment pending — continues on the next feed]
+performance_over_time:
+- mandatory: true
+- determine (per rolling window, the performance trend class):
+  - improving
+  - stable
+  - decaying
+- (The trend verdict drives model_lifecycle transitions: IMPROVING keeps
+  a model ACTIVE, DECAYING moves it toward the challenge/retire path,
+  STABLE sustains it — with the confidence-decay and concept-drift
+  machinery watching the same signals.)
 
 - required: true
 - url: http://localhost:4480/
@@ -320,8 +329,10 @@ performance_over_time: [fragment pending — continues on the next feed]
 - calibration
 - uniform baseline 2.70%
 - difference from baseline
-
-performance_over_time: [fragment pending — continues on the next feed]
+- performance_over_time verdict: improving / stable / decaying per
+  rolling window (mandatory — see the Prediction UI section; the trend
+  class displayed here is the same one driving model_lifecycle
+  transitions)
 
 ## Champion-challenger
 
