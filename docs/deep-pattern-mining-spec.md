@@ -629,6 +629,121 @@ agent_must:
 - verify schedules
 - execute each job manually once
 
+### jobs (extended schedule set)
+
+#### pattern_refresh — */15 * * * * (every 15 minutes)
+purpose:
+- process newly verified spins
+- update pattern discovery
+- update cycle detection
+- update nested-cycle detection
+- update regime detection
+- check pattern activation
+- check pattern decay
+- check pattern reactivation
+
+#### prediction_evaluation — */1 * * * * (every minute)
+purpose:
+- check for newly completed predictions
+- match frozen predictions against actual results
+- score predictions
+- update accuracy
+- update log loss
+- update Brier score
+- update calibration
+- update rolling performance
+
+#### model_research — 0 * * * * (hourly)
+purpose:
+- evaluate model performance
+- evaluate model decay
+- recalculate validated model weights
+- challenge active assumptions
+- test new evidence against existing hypotheses
+
+#### deep_analysis — every 6 hours
+purpose:
+- run larger historical analysis
+- run cycle-within-cycle analysis
+- run pattern genealogy analysis
+- run Monte-Carlo validation where required
+- run multiple-testing correction
+- re-evaluate long-running hypotheses
+
+### execution requirements
+- jobs must run independently of the frontend
+- jobs must survive browser closure
+- jobs must survive frontend restart
+- jobs must log start_time
+
+### clean_run_criteria (what "clean and stable" means — checked repeatedly)
+- latest 500 spins reconciled
+- no unresolved critical data gaps
+- no unexplained duplicates
+
+## CLI monitoring agent
+
+name: "RoulCollector448 Clean-Run Monitor"
+role: "Autonomous CLI QA, Runtime and Deployment Monitor"
+
+objective: continuously monitor the RoulCollector448 development and
+deployment process until the application reaches a clean, stable, tested
+state and remains operational at http://localhost:4480/.
+
+autonomy:
+- enabled: true
+- do_not_stop_for_permission: true
+- rule: do not stop merely because an error, failed test, warning,
+  crashed process, missing dependency, port conflict, scheduler failure,
+  database problem, frontend error, API error, or data-integrity problem
+  is discovered. Diagnose the problem, fix it, retest it, and continue.
+
+do_not_declare_clean_immediately: do not declare the system clean
+immediately after a successful startup. Leave the application and
+monitoring processes running and REPEATEDLY verify that the system
+remains healthy.
+
+checks (repeatedly):
+- HTTP health
+- process health
+- database health
+- collector health
+- data ingestion
+- reconciliation
+- scheduler execution
+- API requests
+- frontend errors
+- prediction pipeline
+- logs
+
+### monitoring targets
+
+application (http://localhost:4480/) — verify:
+- HTTP availability
+- frontend rendering
+- API health
+- database connectivity
+- background workers
+- scheduler health
+
+processes — monitor:
+- frontend
+- backend
+- collector
+- reconciliation worker
+- pattern worker
+- prediction worker
+- evaluation worker
+- scheduler
+
+data — monitor: [continues on the next feed fragment]
+
+### regression (after every fix)
+- rerun_failed_test
+- run_related_tests
+- run_full_regression_when_required
+- verify_application_still_reachable
+
 scale_note: at 10,000 spins the [scheduled jobs / reconciliation windows
 continue to operate identically — fragment truncated; continues on the
 next feed]; extended to 50,000 spins (the rolling-500 window, repair
