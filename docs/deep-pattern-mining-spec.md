@@ -994,6 +994,7 @@ completion_definition — the application is NOT complete until:
 - database layer is operational
 - data integrity layer is operational
 - 500-spin reconciliation is operational
+- repair workflow is operational
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
