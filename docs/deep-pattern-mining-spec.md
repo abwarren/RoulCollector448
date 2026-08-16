@@ -809,6 +809,9 @@ show:
 - scheduler operational
 - soak test completed (a full soak cycle finished with the clean-state
   matrix holding throughout)
+- critical errors resolved (no unresolved critical errors remain — per
+  the error_handling priority, everything at priority 1-8 is fixed and
+  verified)
 
 test:
 - test_sequence_features
