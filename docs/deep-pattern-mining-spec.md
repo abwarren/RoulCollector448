@@ -836,6 +836,7 @@ chronological_sequence_audit:
   - last_1000_chronological_spins
   - last_5000_chronological_spins
   - raw_source_order [continues on the next feed fragment]
+  - canonical_database_order
 
 ## Dashboard (required sections)
 
