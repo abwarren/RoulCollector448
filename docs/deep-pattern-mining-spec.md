@@ -321,9 +321,11 @@ REGIME_CHANGED, CONCEPT_DRIFT, NEW_HYPOTHESIS
 monte_carlo:
 - enabled: true
 - objective: determine how often apparently strong patterns and
-  prediction results arise [naturally in random data — the engine's own
-  false-discovery calibration; fragment truncated; continues on the next
-  feed]
+  prediction results arise naturally in random/fair datasets. (The
+  engine's own false-discovery calibration: run the same discovery and
+  prediction machinery against simulated fair data and measure how often
+  it produces apparent signal — that rate calibrates every discovery
+  threshold.)
 
 test:
 - test_sequence_features
