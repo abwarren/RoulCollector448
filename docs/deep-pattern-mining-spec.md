@@ -203,7 +203,65 @@ performance_over_time: [fragment pending — continues on the next feed]
 
 failure_analysis:
 - after_every_evaluated_prediction:
-  - identify_model [continues on the next feed fragment]
+  - identify_model (which model version produced the prediction)
+  - identify_regime
+  - identify_cycle
+  - identify_active_patterns
+  - identify_feature_contributions
+  - compare_expected_vs_actual (the frozen distribution vs the outcome)
+  - search_for_systematic_failure (is this one miss, or a pattern of
+    failures — same regime/cycle/feature cluster? recurring failures are
+    evidence, a single miss is not)
+  - generate_candidate_improvement (a failure that is systematic feeds a
+    challenger candidate; the improvement must pass the champion-
+    challenger gates before promotion)
+
+## Anti-overfitting
+
+mandatory:
+- walk_forward
+- strict_time_order (training data strictly precedes prediction data)
+- holdout_data
+- out_of_sample
+- multiple_testing_correction
+- simple_model_comparison
+
+rule: better training accuracy WITHOUT better unseen prediction
+performance is classified as OVERFITTING, not improvement. (In-sample
+gains that do not reproduce out-of-sample are never claimed — P007/P011.)
+
+## Concept drift (monitor)
+
+monitor:
+- rolling_accuracy
+- rolling_log_loss
+- rolling_brier
+- calibration
+- distribution_shift
+- regime_change
+
+response:
+- reduce_confidence
+- flag_model_decay
+- challenge_assumptions
+- generate_new_candidates
+- re-evaluate_features
+
+## Model registry
+
+- required: true
+- statuses: EXPERIMENTAL, CHALLENGER, VALIDATED, PRODUCTION, DECAYING,
+  RETIRED
+- record (per model version):
+  - model_version
+  - features
+  - training_range
+  - validation_range
+  - out_of_sample_range
+  - parameters
+  - performance
+  - baseline_difference
+  - parent_model
 
 champion_challenger:
 - enabled: true
