@@ -669,9 +669,55 @@ remaining architecturally independent underneath.
 data_integrity:
 - objective: maintain a verified, chronological, auditable roulette
   dataset and detect and repair recoverable data problems before they
-  fall outside the available [recovery window (the 500-spin active
-  verification+repair window — fragment truncated; continues on the next
-  feed)]
+  fall outside the available reconciliation window.
+
+### recent_window
+- spins: 500
+- rule: the latest 500 spins constitute an ACTIVE verification and
+  repair window. (Matches RECONCILE_WINDOW — the pipeline's recovery
+  authority.)
+
+### raw_observations
+- immutable: true
+- required fields:
+  - observation_id
+  - session_id
+  - game_id
+  - observed_at
+  - server_timestamp
+  - source
+  - number
+  - raw_payload
+  - payload_hash
+  - validation_status
+
+### canonical_spins — required fields:
+- spin_id
+- sequence_number
+- game_id
+- number
+- color
+- server_timestamp
+- captured_at
+- source
+- confidence
+- status
+- verification_version
+- last_verified_at
+
+### integrity_checks
+
+#### per_spin
+- number must be 0-36
+- colour must agree with number
+- valid timestamp
+- valid game identity
+- duplicate detection
+- source agreement
+- capture latency
+
+#### sequence
+detect: [continues on the next feed fragment]
 
 ## Dashboard (required sections)
 
