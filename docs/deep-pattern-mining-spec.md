@@ -427,7 +427,56 @@ cli_monitor:
   - do_not_stop_for_permission: true
 - monitor:
   - application:
-    - http://localhost:4480/ [continues on the next feed fragment]
+    - http://localhost:4480/
+    - frontend
+    - backend
+    - API
+    - database
+    - workers
+    - scheduler
+  - processes:
+    - frontend
+    - backend
+    - collector
+    - reconciliation_worker
+    - pattern_worker
+    - cycle_worker
+    - prediction_worker
+    - evaluation_worker
+    - optimization_agent
+    - scheduler
+  - data:
+    - missing_spins
+    - duplicates
+    - ordering
+    - timestamps
+    - source_conflicts
+    - unverified_records
+    - reconciliation_failures
+  - prediction:
+    - prediction_generation
+    - prediction_freeze
+    - prediction_visibility
+    - prediction_evaluation
+    - data_leakage
+    - accuracy
+  - continuous_loop:
+    - inspect_processes
+    - inspect_http_4480
+    - inspect_logs
+    - inspect_database
+    - inspect_data_integrity
+    - inspect_scheduler
+    - inspect_prediction_pipeline
+    - run_tests
+    - diagnose_failures
+    - implement_safe_fix
+    - restart_if_required
+    - retest
+    - regression_test
+    - repeat
+  - failure_handling:
+    rule: [fragment pending — continues on the next feed]
 
 test:
 - test_sequence_features
