@@ -366,6 +366,7 @@ prediction_optimization_agent:
 
 ### monitor:
 - frequency: every 15 minutes [continues on the next feed fragment]
+- tasks: [fragment pending — continues on the next feed]
 
 ## Champion-challenger
 
