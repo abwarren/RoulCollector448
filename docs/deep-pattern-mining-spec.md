@@ -202,8 +202,18 @@ every prediction should record:
 - component_contribution (how much each component model shaped the final
   distribution)
 - feature_contribution (how much each feature group contributed)
+- regime_contribution (the share of the prediction attributable to the
+  current-regime-conditional component)
+- cycle_contribution (the share attributable to the cycle-position
+  component)
+- neighbour_contribution (the share attributable to the wheel-neighbour
+  component)
+- sequence_contribution (the share attributable to the sequential-pattern
+  component)
 
-## Self-critical adaptive learning
+## Blind prediction evaluation
+
+objective: >
 
 Assumption ledger entries carry: assumption_id, supporting_dataset,
 sample_size, confidence. States include WEAKENING, CONTRADICTED.
