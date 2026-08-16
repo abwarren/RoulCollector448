@@ -408,6 +408,12 @@ methods (the statistical machinery used to compare pattern vs baseline):
   for multiple testing per P004 when many candidate patterns are scanned;
   a p-value alone is never a claim, and a corrected p-value that fails to
   clear the family-wise threshold kills the pattern)
+- false_discovery_rate (FDR control — Benjamini-Hochberg style — across
+  the family of scanned candidate patterns: the expected proportion of
+  false discoveries among the patterns declared significant. When the
+  miner scans hundreds of candidates, raw p-values overstate the evidence;
+  FDR-adjusted q-values are the decision quantity for which patterns
+  survive to the reproducibility gate)
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
