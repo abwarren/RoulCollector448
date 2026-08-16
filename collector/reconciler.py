@@ -419,10 +419,18 @@ def duplicate_incidents(plan) -> list:
     return out
 
 
-def reconcile(local_spins, history_provider, window: int = 500) -> ReconciliationResult:
+def reconcile(local_spins, history_provider, window: int = 500,
+              base: int | None = None) -> ReconciliationResult:
     """Run one reconcile pass. Returns a result with a RepairPlan.
 
     local_spins: canonical spins, OLDEST-first (as stored) — reversed here.
+
+    base: the number of dataset records that PRECEDE this window (their
+    absolute sequence positions are 1..base). Default None -> derived from
+    the passed list (base = len(local_spins) - len(window slice)), which is
+    only correct when the FULL dataset is passed. Callers that truncate to
+    the latest `window` rows MUST pass the true base (e.g. total rows -
+    window) so backfill/renumber positions are absolute, not window-relative.
 
     Authority is decided per-pass from the STRONGEST identity that actually
     matched (PRD §14): only a game_id (level 1) match grants repairable.
@@ -448,7 +456,11 @@ def reconcile(local_spins, history_provider, window: int = 500) -> Reconciliatio
 
     # Relative sequences (1 = oldest of the remote window) become absolute:
     # the window base is how many records precede the window in the dataset.
-    base = len(local_spins) - len(local)
+    # The caller passes the true base when it truncated the dataset to the
+    # window (the normal case); the passed-list derivation is only correct
+    # for a full-dataset call.
+    if base is None:
+        base = len(local_spins) - len(local)
     if plan.reorder:
         plan.reorder_start += base
     if plan.renumber:

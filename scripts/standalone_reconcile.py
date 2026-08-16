@@ -88,7 +88,7 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
         # canonical spins, newest first — in CANONICAL SEQUENCE order (the
         # reconstructed ordering), NULL sequence last, id tie-break.
         rows = conn.execute(
-            "SELECT game_id, number, server_ts FROM roulette_spins "
+            "SELECT game_id, number, server_ts, sequence_no FROM roulette_spins "
             "ORDER BY sequence_no IS NULL, sequence_no DESC, id DESC LIMIT ?",
             (window,),
         ).fetchall()
@@ -110,9 +110,34 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
         # authoritative history: durable source='history' observations
         # (survives collector restarts; read-only probe of the same DB)
         remote = history.DBHistoryProvider().fetch_recent_history(limit=window)
+
+        # the ABSOLUTE window base. The remote window is the AUTHORITY that
+        # defines positions — the base is the sequence preceding the remote
+        # window's OLDEST record (found by its game_id in the canonical
+        # table). Local-window-derived bases are wrong when a hole makes
+        # the local (sequence-based) and remote (id-based) windows cover
+        # different spans.
+        base = None
+        if remote:
+            oldest_remote = remote[-1]          # newest-first -> oldest
+            if oldest_remote.game_id:
+                try:
+                    row = conn.execute(
+                        "SELECT sequence_no FROM roulette_spins "
+                        "WHERE game_id=?", (oldest_remote.game_id,)
+                    ).fetchone()
+                    if row and row[0] is not None:
+                        base = max(0, int(row[0]) - 1)
+                except Exception:
+                    base = None
+        if base is None:
+            # fallback: the oldest loaded local row's sequence - 1
+            base = (max(0, int(rows[-1]["sequence_no"]) - 1)
+                    if rows and rows[-1]["sequence_no"] is not None else 0)
+
         result = reconciler.reconcile(local_oldest,
                                       history.StaticHistoryProvider(remote),
-                                      window=window)
+                                      window=window, base=base)
         details = _details(result)
 
         # deterministic repairs only when the authority carries identity
@@ -231,20 +256,38 @@ def recover_gaps(conn, window: int = RECONCILE_WINDOW) -> list:
         # regardless of RC_DB_PATH / which DB the caller connected to.
         recovered = False
         try:
+            local_rows = conn.execute(
+                "SELECT game_id, number, server_ts, sequence_no "
+                "FROM roulette_spins "
+                "ORDER BY sequence_no DESC LIMIT ?", (window,)).fetchall()
             local = [{"game_id": r[0], "number": r[1], "server_ts": r[2]}
-                     for r in conn.execute(
-                         "SELECT game_id, number, server_ts FROM roulette_spins "
-                         "ORDER BY sequence_no DESC LIMIT ?", (window,))]
-            rows = conn.execute(
+                     for r in local_rows]
+            rows2 = conn.execute(
                 "SELECT game_id, number, server_ts FROM spin_observations "
                 "WHERE source='history' AND game_id IS NOT NULL "
                 "ORDER BY id DESC LIMIT ?", (window,)
             ).fetchall()
             remote = [history.HistoryRecord(game_id=r[0], number=r[1],
-                                             server_ts=r[2]) for r in rows]
+                                             server_ts=r[2]) for r in rows2]
+            # absolute base from the REMOTE window's oldest record (the
+            # authority); fallback to the oldest loaded local row
+            base = None
+            if remote:
+                oldest_remote = remote[-1]
+                if oldest_remote.game_id:
+                    row = conn.execute(
+                        "SELECT sequence_no FROM roulette_spins "
+                        "WHERE game_id=?", (oldest_remote.game_id,)
+                    ).fetchone()
+                    if row and row[0] is not None:
+                        base = max(0, int(row[0]) - 1)
+            if base is None:
+                oldest_seq = local_rows[-1][3] if local_rows else None
+                base = max(0, int(oldest_seq) - 1) if oldest_seq is not None else 0
             result = reconciler.reconcile(
                 list(reversed(local)),
-                history.StaticHistoryProvider(remote), window=window)
+                history.StaticHistoryProvider(remote), window=window,
+                base=base)
             if result.plan.repairable and not result.ok:
                 rep.apply_plan(result.plan)
             # re-run validation: is the gap gone?

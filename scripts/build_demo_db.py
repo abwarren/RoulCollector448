@@ -53,6 +53,22 @@ conn.execute("UPDATE roulette_spins SET sequence_no = id, status='VALID', "
              "source='websocket', first_seen_at = server_ts, "
              "last_verified_at = captured_at")
 
+# authoritative history observations — one per spin, source='history', so
+# the reconciliation/recovery pipeline has a real authority to repair from
+# (a live collector persists these from WS history frames; without them the
+# sweep can only ever report UNVERIFIED, never REPAIRED).
+sid_hist = observer.start_session(conn, source="history-ws")
+for i in range(2200):
+    n = i % 37
+    color = "Green" if n == 0 else ("Red" if n in REDS else "Black")
+    ts = (now - datetime.timedelta(seconds=(2200 - i) * 44)).isoformat()
+    observer.record_observation(
+        conn, source="history", session_id=sid_hist, game_id=f"g{i}",
+        number=n, server_ts=ts, description=f"{n} {color}",
+        raw_payload=f'{{"gameId":"g{i}","number":{n}}}',
+    )
+observer.end_session(conn, sid_hist, spins_captured=2200, status="ENDED")
+
 sid = observer.start_session(conn, source="cdp-ws")
 observer.log_event(conn, "SESSION_START", details={"resumed_spins": 2200, "last_game_id": "g2199"})
 
@@ -95,7 +111,14 @@ conn.execute(
      '{"backfilled": 1, "corrected": 0, "collapsed": 0, "reordered": 0}'),
 )
 
-# a gap incident (open repair)
+# a REAL missing spin: g2150 is absent from the canonical table (the row
+# was deleted below) but present in the history observations — and it sits
+# INSIDE the latest-500 window, so the every-5-min sweep can detect the gap
+# AND repair it (proving REPAIRED). (A gap older than the window is only
+# visible via the repair queue, not the rolling audit.)
+conn.execute("DELETE FROM roulette_spins WHERE game_id='g2150'")
+conn.commit()
+# the gap incident (open repair) matching that missing spin
 observer.log_event(
     conn, "GAP", severity="WARNING",
     details={"cadence_s": 128, "window": 500},
@@ -105,7 +128,7 @@ conn.execute(
     "INSERT INTO repair_events (created_at, incident_type, start_game_id, "
     "end_game_id, affected_count, status, attempts, last_attempt_at, "
     "resolution, details) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    (observer.now_iso(), "MISSING_SPIN", "g1107", "g1109", 1,
+    (observer.now_iso(), "MISSING_SPIN", "g2150", "g2150", 1,
      "OPEN", 0, None, None, '{"detected": "cadence gap 128s"}'),
 )
 
