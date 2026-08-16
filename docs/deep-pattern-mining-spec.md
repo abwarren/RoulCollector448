@@ -721,6 +721,9 @@ detect:
 - missing_spin [continues on the next feed fragment]
 - duplicate_spin (same game_id / same number+timestamp seen twice —
   caught at the sequence level even where per-spin checks pass)
+- out_of_order_spin (a spin whose sequence_number/timestamp breaks the
+  canonical chronological ordering — detected and, where the identity
+  permits, repaired by minimal-suffix reorder)
 
 ## Dashboard (required sections)
 
