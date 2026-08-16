@@ -739,6 +739,7 @@ processes — monitor:
 data — monitor:
 - verify source agreement [continues on the next feed fragment]
 - verify collector health
+- verify database consistency
 
 ### regression (after every fix)
 - rerun_failed_test
