@@ -681,6 +681,25 @@ reported as such and must NOT be interpreted as a temporal pattern.
 example input (raw chronological order): 32, 33, 34, 35, 36, 4, 16, 15,
 14, ...
 
+### display_artifact_mechanism (how the display creates apparent loops)
+
+The display itself may be creating the apparent loop: the rows appear to
+contain ordered/rasterized data, with each row continuing or reversing a
+numerical sequence. For example:
+- Row 1: 32 33 34 35 36 4 16 15 14 13 12 ...
+- Row 2: 34 33 32 31 30 29 28 27 ...
+
+... and the same structures appear again several rows down — e.g. the
+blue-highlighted 34 positions appearing repeatedly at STRUCTURALLY
+SIMILAR positions (same column/position across different rows).
+
+detector behaviour: when the same structure recurs several rows down at
+structurally similar positions, the detector must attribute it —
+recurrence at the same row/column position across rows is a LAYOUT
+artifact (the rasterization geometry), not a temporal recurrence. It must
+be reported as a display anomaly and rejected as a temporal discovery
+unless the raw chronological order independently confirms the recurrence.
+
 calculate: [A, B, C, D, ... the per-geometry loop-strength metrics are
 arriving one at a time — see the accumulated list below]
 - Then compare that against the NEXT occurrence of the same sequence.
