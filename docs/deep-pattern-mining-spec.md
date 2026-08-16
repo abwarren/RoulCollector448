@@ -1140,7 +1140,13 @@ investigate:
 
 ## Cycle comparison
 
-cycle_comparison: [fragment pending — continues on the next feed]
+cycle_comparison:
+- cycle_to_cycle (direct structural comparison between cycles)
+- historical_similarity (similarity to past cycles)
+- cycle_fingerprint_similarity (full-fingerprint family clustering)
+- cycle_phase (comparison at matched phases)
+- cycle_completion_tail (comparison of completion tails)
+- cycle_regime_relationship (how cycles relate to the active regime)
 
 mandatory_rule: EVERY prediction must be generated, timestamped, frozen,
 and persisted BEFORE the actual next spin is observed. A prediction that
