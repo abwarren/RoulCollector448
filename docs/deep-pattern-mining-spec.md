@@ -736,7 +736,8 @@ processes — monitor:
 - evaluation worker
 - scheduler
 
-data — monitor: [continues on the next feed fragment]
+data — monitor:
+- verify source agreement [continues on the next feed fragment]
 
 ### regression (after every fix)
 - rerun_failed_test
