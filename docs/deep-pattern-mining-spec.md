@@ -371,7 +371,8 @@ purpose:
 - verify database consistency
 
 ### pattern_refresh — every 15 minutes
-purpose: [continues on the next feed fragment]
+purpose:
+- process new verified spins [continues on the next feed fragment]
 
 test:
 - test_sequence_features
