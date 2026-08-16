@@ -250,6 +250,9 @@ outcome, then the outcome columns filled in after the spin lands):
 - cycle (the current coverage-cycle position at prediction time —
   cycle-conditional context frozen into the record, mirroring
   prediction_output.current_cycle)
+- feature_snapshot (the exact feature values the model consumed for THIS
+  prediction — the state the probabilities were computed from, frozen
+  verbatim so any prediction can be reproduced or audited later)
 - probability_distribution
 - top_1
 - top_3
