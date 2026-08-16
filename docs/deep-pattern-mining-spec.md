@@ -845,6 +845,55 @@ steps (repeated indefinitely until the clean-run criteria hold):
 - diagnose_root_cause (for each identified failure, trace to the root
   cause before fixing — logs, stack traces, state inspection — per the
   autonomous_debugging toolkit; no patch without a diagnosis)
+- implement_safe_fix (apply the minimal safe fix per the diagnosis —
+  source patch, config repair, restart, migration — within the
+  automatic_actions list)
+- restart_affected_component_if_required (restart what the fix touched)
+- retest (re-run the failing test/check)
+- run_regression_tests
+- repeat (until the clean-run criteria hold)
+
+### error_handling
+philosophy: treat every failure as an ENGINEERING TASK to resolve, not as
+a reason to stop the process.
+
+priority (what gets fixed first):
+1. data corruption or data integrity failure
+2. prediction leakage or evaluation corruption
+3. application crash
+4. database failure
+5. collector failure
+6. scheduler failure
+7. API failure
+8. frontend failure
+9. test failure
+10. warnings and non-critical defects
+
+automatic_actions — permitted:
+- restart_failed_local_process
+- restart_worker
+- restart_scheduler
+- repair_configuration
+- install_missing_local_dependency
+- apply_source_code_fix
+- apply_database_migration
+- clear_stale_process_locks
+- resolve_local_port_conflict
+- rerun_failed_tests
+- run_reconciliation
+- run_integrity_checks
+- run_backtests
+- run_health_checks
+
+restriction: NEVER destroy verified historical data or overwrite
+immutable raw observations as part of an automatic repair. (The
+immutability guarantees — P001 + PRD §34 — bind the repair machinery
+too.)
+
+### clean_state_definition
+application:
+- localhost:4480 responds successfully
+- frontend loads without fatal errors
 
 ### regression (after every fix)
 - rerun_failed_test
