@@ -959,7 +959,8 @@ Pattern shapes include:
 
 ## Agent execution directive
 
-quality_gate: [fragment pending — continues on the next feed]
+quality_gate:
+- do_not_declare_complete_if: [list pending — continues on the next feed]
 
 objective: take RoulCollector448 from its current state through
 implementation, integration, testing, debugging, validation, and local
