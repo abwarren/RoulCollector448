@@ -727,6 +727,9 @@ detect:
 - timestamp_anomaly (implausible timestamps — future timestamps, capture
   latency beyond bounds, or timestamps inconsistent with the sequence
   position)
+- game_id_conflict (the same game_id observed with conflicting numbers
+  from different sources — the §25 never-auto-repair condition;
+  surfaced as a conflict, never silently resolved)
 
 ## Dashboard (required sections)
 
