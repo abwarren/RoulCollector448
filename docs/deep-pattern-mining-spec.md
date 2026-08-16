@@ -692,7 +692,9 @@ instance is still running. (The overlap lock guarantees single-flight
 execution: if a job exceeds its cadence, the tick is skipped and the
 overlap logged — never double-run.)
 
-### failure_recovery: [fragment pending — continues on the next feed]
+### failure_recovery:
+requirements:
+- detect failed cron execution [continues on the next feed fragment]
 
 ### clean_run_criteria (what "clean and stable" means — checked repeatedly)
 - latest 500 spins reconciled
