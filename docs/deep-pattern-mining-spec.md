@@ -446,6 +446,9 @@ every_canonical_spin_traceable_to:
 ### cycles — display:
 - active_cycles (the currently-active coverage cycles — including
   overlapping ones — with id, position, completion %, and velocity)
+- cycle_completion (per-cycle completion progress — unique count vs 37,
+  missing numbers remaining, coverage curve at the standard coverage
+  points)
 
 ## Model learning
 
