@@ -677,6 +677,21 @@ purpose:
 - jobs must survive browser closure
 - jobs must survive frontend restart
 - jobs must log start_time
+- jobs must log completion_time
+- jobs must log duration
+- jobs must log success_or_failure
+- jobs must use a lock to prevent overlapping executions
+- failed jobs must be logged
+- failed jobs must be retried where safe
+- job history must be retained
+
+### locking
+required: true
+rule: a second instance of the same job must not start while a previous
+instance [is still running — the overlap lock guarantees single-flight
+execution; a job that exceeds its cadence is logged and the next tick
+skips rather than double-running — fragment truncated; continues on the
+next feed]
 
 ### clean_run_criteria (what "clean and stable" means — checked repeatedly)
 - latest 500 spins reconciled
