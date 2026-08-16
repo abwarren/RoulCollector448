@@ -258,6 +258,10 @@ statistical:
   outcomes after the prediction point — the walk-forward rule covers
   the full model-building path: features, selection, weights, and
   hyperparameters)
+- retrospective_prediction_changes (editing, regenerating, or re-scoring
+  a prediction after its outcome is known — the frozen record is the
+  only record; post-hoc modification is void and prohibited, per the
+  immutable prediction_record)
 
 ## Prediction lock
 
