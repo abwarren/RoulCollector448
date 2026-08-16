@@ -556,6 +556,12 @@ critical_test:
   survive into the canonical table in sequence_number order — raw +
   canonical agreement is required before the structure can be a genuine
   chronological property)
+- "Is it only a UI/rendering artifact?" (the third gate: even if present
+  in raw + canonical data, determine whether the VISUAL pattern is
+  amplified or manufactured by the rendering — sorting, pagination,
+  row/column rasterization, client-side reordering. If the pattern is
+  only visible because of how the UI arranges rows, it is a rendering
+  artifact regardless of what the data contains)
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
