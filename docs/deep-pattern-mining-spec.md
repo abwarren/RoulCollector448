@@ -719,6 +719,8 @@ data_integrity:
 #### sequence
 detect:
 - missing_spin [continues on the next feed fragment]
+- duplicate_spin (same game_id / same number+timestamp seen twice —
+  caught at the sequence level even where per-spin checks pass)
 
 ## Dashboard (required sections)
 
