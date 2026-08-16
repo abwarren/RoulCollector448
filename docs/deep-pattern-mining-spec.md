@@ -1603,7 +1603,10 @@ the integrated application is complete, operational, tested, and
 accessible at http://localhost:4480/. The CLI monitor must continue until
 the system reaches CLEAN status. (The CLEAN state = the full clean-state
 matrix holds + the soak has held + all seven clean_requires conditions —
-see the soak_test section.)
+see the soak_test section.) Documentation or a successful build alone
+does NOT constitute CLEAN status — CLEAN is a RUNTIME property, earned
+only by the monitored system holding every clean-state criterion under
+observation.
 
 objective: take RoulCollector448 from its current state through
 implementation, integration, testing, debugging, validation, and local
