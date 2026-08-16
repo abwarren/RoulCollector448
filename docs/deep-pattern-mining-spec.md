@@ -323,3 +323,8 @@ change_detection:
 - CUSUM (cumulative sum control chart on the feature streams / prediction
   error / coverage velocity — flags sustained shifts that a threshold test
   would miss; a first-class regime-change detector alongside JS-divergence).
+- Page_Hinkley (Page-Hinkley test — a sequential change-point detector on
+  the feature streams: accumulates deviations from the running mean and
+  fires when the cumulative positive/negative drift exceeds a threshold;
+  complements CUSUM with a different statistic and a natural forgetting of
+  old baselines).
