@@ -312,6 +312,11 @@ record:
 - recurrence_interval (the time/spin gap between activations — how long
   the pattern was INACTIVE before this reactivation; feeds the return-time
   distribution and the pattern-reactivation predictions)
+- historical_prediction_performance (how the pattern's activations have
+  performed as PREDICTORS across past episodes — hit rates, log loss,
+  contribution to ensemble performance during each activation — so a
+  reactivation is only trusted if the pattern's historical predictive
+  record justifies it)
 
 ## Model learning
 
