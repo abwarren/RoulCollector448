@@ -373,6 +373,7 @@ purpose:
 ### pattern_refresh — every 15 minutes
 purpose:
 - process new verified spins [continues on the next feed fragment]
+- update patterns
 
 test:
 - test_sequence_features
