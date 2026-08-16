@@ -212,7 +212,45 @@ probability:
 - log_loss
 - Brier_score
 - calibration
-statistical: [continues on the next feed fragment]
+statistical:
+- confidence_interval
+- effect_size
+- baseline_difference
+
+### baseline
+- uniform_37_probability: 0.027027027
+- display: "2.70%"
+
+### rolling_windows (evaluation horizons)
+- 100
+- 500
+- 1000
+- 5000
+- 10000
+- 25000
+- 50000
+- 100000
+- all_available
+
+### walk_forward
+- enabled: true
+- mandatory: true
+- process (9 steps):
+  - train_on_past
+  - freeze_model
+  - predict_next
+  - freeze_prediction
+  - observe_actual
+  - score
+  - append_result
+  - update_future_model (retrain with now-available data only)
+  - repeat
+
+### data_leakage — prohibited:
+- future_spin_in_features (a feature computed from a spin not yet
+  observed at freeze time)
+- future_spin_in_model_selection (choosing a model/weights using
+  outcomes after the prediction point)
 
 ## Prediction lock
 
