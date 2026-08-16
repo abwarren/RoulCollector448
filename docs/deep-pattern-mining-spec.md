@@ -195,6 +195,8 @@ is currently detected. (Honesty over confidence — the default answer is
 
 ## Model learning
 
+model_comparison: [fragment pending — continues on the next feed]
+
 objective: determine which models and discovered structures are USEFUL
 under which regimes and temporal conditions.
 
