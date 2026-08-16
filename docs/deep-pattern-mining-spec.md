@@ -398,6 +398,11 @@ methods (the statistical machinery used to compare pattern vs baseline):
   null distribution of the test statistic)
 - confidence_intervals (report effect sizes with CIs, not just point
   estimates; a pattern whose CI straddles the null is not a claim)
+- effect_size (a standardized magnitude of the discovered effect — e.g.
+  Cohen's d / odds ratio / relative-risk style measures vs the chosen
+  baseline — reported ALONGSIDE any p-value: statistical significance
+  without a material effect size is not a claim, and the effect size is
+  the quantity that must reproduce out-of-sample)
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
