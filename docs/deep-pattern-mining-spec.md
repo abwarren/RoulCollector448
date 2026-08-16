@@ -382,6 +382,9 @@ output: [continues in the next feed fragment]
 - dominant_features (the feature groups that most influenced this
   prediction — e.g. regime state, cycle position, neighbour activity —
   ranked by their contribution, per the model_attribution record)
+- active_patterns (the currently-active validated patterns that shaped
+  this prediction — which patterns were in play, their activation
+  strength, and how each contributed to the distribution)
 
 ## Model learning
 
