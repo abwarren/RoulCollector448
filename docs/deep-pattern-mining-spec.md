@@ -839,6 +839,9 @@ steps (repeated indefinitely until the clean-run criteria hold):
 - inspect_scheduler
 - run_tests (periodically re-run the test suite in the loop — a clean
   run must stay clean as the system runs, not just at build time)
+- identify_failures (after each inspection/test pass, consolidate what
+  failed — test failures, health violations, integrity anomalies — into
+  a prioritized fix list; feeds the diagnose → fix → retest cycle)
 
 ### regression (after every fix)
 - rerun_failed_test
