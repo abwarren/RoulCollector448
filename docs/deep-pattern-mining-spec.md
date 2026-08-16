@@ -328,3 +328,8 @@ change_detection:
   fires when the cumulative positive/negative drift exceeds a threshold;
   complements CUSUM with a different statistic and a natural forgetting of
   old baselines).
+- change_point_detection (the umbrella capability: precise identification
+  of the SPIN at which a regime/statistical structure changes — feeds the
+  regime segmentation boundaries and the assumption-ledger triggers; JS-
+  divergence, CUSUM and Page-Hinkley are the detectors, this is the
+  change-point localization they jointly produce).
