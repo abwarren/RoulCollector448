@@ -267,3 +267,56 @@ coverage curve + velocity + duplicate rate + colour distribution + entropy
 cycle_completion_tail (the final stretch of a cycle — the last few missing
 numbers, typically the slowest: how long the tail takes, which numbers are
 persistent tail-dwellers, tail length vs cycle length distribution).
+
+cycle_analysis_extended (further cycle dimensions):
+- early_coverage_velocity (coverage speed in the first stretch of a cycle)
+- late_coverage_velocity (coverage speed near completion — typically slower)
+- missing_number_dynamics (how the missing-number set evolves: which leave
+  the set, which linger, replacement rate)
+- physical_cluster_of_missing_numbers (are the missing numbers clustered
+  on the wheel or scattered? cluster size / arc span of the missing set)
+- overlapping_cycle_interaction (how concurrent cycles interfere: shared
+  numbers, velocity coupling, one cycle's tail vs another's start)
+- cycle_regime_relationship (how cycles relate to detected regimes: do
+  cycle lengths/velocities differ across regimes?)
+- cycle_reactivation (cycles that re-enter the active set / repeat their
+  structure after apparent completion)
+
+## Nested cycle analysis
+
+objective: detect cycles occurring INSIDE larger coverage cycles and
+determine whether inner structures recur at comparable positions or
+phases of the larger cycles.
+
+examples:
+- colour_cycle_inside_37_number_cycle (a colour-coverage cycle nested in a
+  full 37-number cycle)
+- neighbour_cycle_inside_coverage_cycle
+- double_cycle_inside_neighbour_regime
+- pair_chain_inside_cycle
+- coverage_cycle_started_before_previous_cycle_completed (overlapping
+  cycles as a nested structure)
+
+## Regime engine
+
+objective: detect periods during which the statistical structure of the
+sequence changes, WITHOUT assuming fixed session boundaries or
+predetermined regimes.
+
+regime_features (the per-window statistical profile that defines a
+regime's identity):
+- number_distribution
+- transition_distribution
+- colour_distribution
+- neighbour_distribution
+- wheel_distance_distribution
+- repeat_distribution
+- cycle_features
+- sequence_features
+- entropy
+- pattern_activation
+- prediction_performance
+
+change_detection:
+- preferred_methods: Jensen_Shannon_divergence (between adjacent-window
+  feature distributions) — plus drift-based detection of regime changes.
