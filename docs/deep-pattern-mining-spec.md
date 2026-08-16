@@ -195,7 +195,13 @@ is currently detected. (Honesty over confidence — the default answer is
 
 ## Model learning
 
-model_comparison: [fragment pending — continues on the next feed]
+model_comparison:
+- requirement: Complex models must be compared against simpler models.
+  Complexity must not [fragment truncated mid-sentence — continues on the
+  next feed: expected completion along the lines of "must not be justified
+  without a demonstrated, validated out-of-sample improvement over the
+  simpler model" — P004's simpler_model_explains_same_effect clause; paste
+  the exact wording if it differs]
 
 objective: determine which models and discovered structures are USEFUL
 under which regimes and temporal conditions.
