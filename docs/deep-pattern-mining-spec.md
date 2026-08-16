@@ -481,6 +481,7 @@ cli_monitor:
     only escalation is the autonomy exception: credentials, unavailable
     resources, destructive operations, or genuinely unknowable
     requirements.)
+  - actions: [fragment pending — continues on the next feed]
 
 test:
 - test_sequence_features
