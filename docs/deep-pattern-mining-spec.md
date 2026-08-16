@@ -328,7 +328,50 @@ monte_carlo:
   threshold.)
 
 simulations:
-- configurable: true [continues on the next feed fragment]
+- configurable: true
+- default: 10000 (simulation runs)
+- run (the SAME machinery, unchanged, against simulated fair data):
+  - same_pattern_mining
+  - same_cycle_detection
+  - same_prediction_evaluation
+- output:
+  - observed_statistic
+  - simulation_mean
+  - simulation_distribution
+  - 95th_percentile
+  - 99th_percentile
+  - empirical_p_value
+  - effect_size
+
+## Scheduled reconciliation (scheduler platform)
+
+scheduler:
+- required: true
+- platform:
+  - windows: Windows Task Scheduler
+  - linux: cron
+  - container: appropriate worker/scheduler
+
+jobs:
+
+### recent_reconciliation — every minute
+purpose:
+- inspect latest 500
+- detect missing
+- detect duplicates
+- detect ordering errors
+- repair deterministic issues
+- update integrity
+
+### deep_reconciliation — every 5 minutes
+purpose:
+- complete latest-500 audit
+- verify canonical order
+- verify source agreement
+- verify database consistency
+
+### pattern_refresh — every 15 minutes
+purpose: [continues on the next feed fragment]
 
 test:
 - test_sequence_features
