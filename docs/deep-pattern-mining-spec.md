@@ -643,6 +643,11 @@ show:
 - historical matches
 
 ### chronological_stream — title: "CHRONOLOGICAL SPIN DATA"
+requirement: show actual chronological spin order without sorting or
+mathematical [arrangement/transformation — fragment truncated mid-
+sentence; continues on the next feed. Expected completion along the
+lines of: "arrangement, grouping, or visual transformation — the raw
+sequence as it actually occurred"]
 
 test:
 - test_sequence_features
