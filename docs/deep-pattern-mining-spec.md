@@ -476,6 +476,14 @@ rejection_conditions: [continues in the next feed fragment]
   per P003, out-of-sample performance is the only performance that
   counts; an OOS failure demotes an OUT_OF_SAMPLE_VERIFIED hypothesis to
   REJECTED with the OOS record appended)
+- not_significantly_different_from_baseline (the hypothesis's effect is
+  not statistically distinguishable from its chosen baseline — uniform-37
+  outcome, historical frequency, recent frequency, or the markov/
+  randomized/fair-wheel nulls: even if internally "significant" against a
+  straw null, a pattern that the appropriate baseline reproduces equally
+  well is NOT a discovery — per P004, every claimed edge must beat the
+  simpler baseline; this rejection is recorded with the baseline + the
+  comparison statistic)
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
