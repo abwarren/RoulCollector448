@@ -525,6 +525,8 @@ investigation (the direct-DB checks):
 - inspect API response ordering
 - compare displayed order against database order
 
+compare: [fragment pending — continues on the next feed]
+
 reconstruct — required outputs:
 - last_500_chronological_spins
 - last_1000_chronological_spins
