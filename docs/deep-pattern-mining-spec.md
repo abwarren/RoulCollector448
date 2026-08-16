@@ -240,7 +240,14 @@ features (the per-spin feature set the prediction models consume):
 - wheel_distance_activity
 - entropy
 
-cycle_conclusions: [continues in the next feed fragment]
+cycle_conclusions:
+- requirement: The system must not conclude that because a wheel is
+  balanced or because a [fragment truncated mid-sentence — continues on
+  the next feed: expected completion along the lines of "wheel is
+  balanced, therefore patterns cannot exist" — i.e. a balanced wheel is
+  the NULL, not a conclusion; the system must not reason from the wheel's
+  theoretical balance to dismiss or to assert patterns — paste the exact
+  wording if it differs]
 
 ## Model learning
 
