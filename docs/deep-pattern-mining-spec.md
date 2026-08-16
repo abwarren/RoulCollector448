@@ -529,6 +529,9 @@ when challenging or supporting a conclusion):
 - human_assumption (lowest — an assumption carries no evidentiary weight
   on its own)
 
+rule: human assumptions are hypotheses only. They must NEVER override
+sufficiently strong contradictory evidence from verified data.
+
 objective: the system must continuously challenge its own assumptions,
 models, pattern definitions, cycle interpretations, regime classifications,
 and predictive conclusions. No conclusion is permanent. New verified data
@@ -849,12 +852,51 @@ after_failure: identify active patterns affected, reassess.
 ## Model versioning
 
 - immutable_versions: true
-- per version: version_id, validation_results, out_of_sample_results
+- requirement: NEVER overwrite an old model. Create a new version whenever
+  assumptions, features, weights, architecture, or training methodology
+  materially change. (The old version stays immutable — the audit trail of
+  what was believed and when.)
+- each_version_records: version_id, created_at, training_dataset,
+  assumptions, features, weights, validation_results,
+  out_of_sample_results, reason_for_change, previous_version
 - events: ASSUMPTION_REJECTED, PATTERN_REVISED, CONCEPT_DRIFT_DETECTED
 - track_rejected_hypotheses (rejected hypotheses are research data, never
   deleted; old assumptions replaced are recorded)
 - display: patterns_reactivated, old_hypotheses_replaced
 - session_identification
+
+## Research ledger — adaptive events
+
+The ledger records every adaptive event as an entry:
+- ASSUMPTION_CREATED
+- ASSUMPTION_SUPPORTED
+- ASSUMPTION_WEAKENED
+- ASSUMPTION_CONTRADICTED
+- ASSUMPTION_REJECTED
+- PATTERN_REVISED
+- PATTERN_RETIRED
+- MODEL_UPDATED
+- MODEL_RETIRED
+- REGIME_CHANGED
+- CONCEPT_DRIFT_DETECTED
+
+## Learning from failure
+
+requirement: prediction failures must be treated as INFORMATION about the
+model rather than merely as incorrect predictions. (A failure is a
+measurement, not a verdict — the system's response to failure is to learn,
+per P005.)
+
+after_failure (the post-failure learning sequence):
+- record_prediction
+- identify_contributing_features
+- identify_active_regime
+- identify_active_cycle
+- identify_active_patterns
+- determine_which_assumptions_were_involved
+- test_whether_assumptions_still_hold
+- update_model_if_supported
+- record_learning_event
 
 ## Reliability / capture (fed earlier)
 
