@@ -317,6 +317,62 @@ record:
   contribution to ensemble performance during each activation — so a
   reactivation is only trusted if the pattern's historical predictive
   record justifies it)
+- current_prediction_performance (the pattern's live prediction record
+  during the CURRENT activation — being measured in real time against the
+  same metrics, so the reactivation's performance is tracked from the
+  first spin it informs)
+
+pattern_activation_statuses: INACTIVE, EMERGING, ACTIVE, REACTIVATING,
+DECAYING.
+
+## Research ledger
+
+objective: maintain an IMMUTABLE scientific-style record of every
+important hypothesis, model, pattern, cycle, prediction system, validation
+result, rejection, and reactivation.
+
+### pattern entries (required)
+- pattern_id
+- definition
+- discovery_time
+- dataset_range
+- sample_size
+- baseline
+- observed_statistic
+- statistical_test
+- validation_result
+- out_of_sample_result
+- current_status
+
+### model entries (required)
+- model_id
+- version
+- features
+- training_range
+- validation_range
+- out_of_sample_range
+- prediction_count
+- top_1
+- top_3
+- top_5
+- log_loss
+- brier_score
+- calibration
+- baseline_difference
+- status
+
+rule: historical research results must NEVER be rewritten to make a model
+or pattern appear more successful than it actually was. (The ledger is
+append-only; corrections are new entries with a reference, never in-place
+edits — P005's honesty guarantee at the record level.)
+
+## Prediction explainability
+
+objective: every prediction should be explainable in terms of the
+information and model components that influenced its probability
+distribution.
+
+output: [continues in the next feed fragment]
 
 ## Model learning
 
