@@ -365,8 +365,34 @@ prediction_optimization_agent:
   via challenger promotion and improved future models.)
 
 ### monitor:
-- frequency: every 15 minutes [continues on the next feed fragment]
-- tasks: [fragment pending — continues on the next feed]
+- frequency: every 15 minutes
+- tasks:
+  - check_new_prediction_results
+  - update_accuracy
+  - update_log_loss
+  - update_brier
+  - update_calibration
+  - detect_performance_change
+
+### research (hourly)
+tasks:
+- analyse_prediction_failures
+- identify_model_weakness
+- analyse_feature_performance
+- analyse_regime_specific_performance
+- generate_improvement_hypotheses
+
+### deep_optimization (every 6 hours)
+tasks:
+- test_candidate_models
+- test_new_features
+- test_feature_interactions
+- test_cycle_features
+- test_nested_cycle_features
+- test_neighbour_features
+- test_sequence_features
+- test_regime_features
+- test_ensemble_weights
 
 ## Champion-challenger
 
