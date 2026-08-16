@@ -333,6 +333,35 @@ performance_over_time:
   rolling window (mandatory — see the Prediction UI section; the trend
   class displayed here is the same one driving model_lifecycle
   transitions)
+- performance graph
+
+### performance_graph
+- mandatory: true
+- plots:
+  - rolling accuracy vs baseline
+  - rolling log loss
+  - rolling calibration
+  - champion vs challenger
+  - performance by regime
+- objective: make improvement, decay, regime shifts, and short-term
+  spikes visible.
+
+## Prediction optimization agent
+
+prediction_optimization_agent:
+- name: "RoulCollector448 Prediction Optimization CLI Agent"
+- type: "independent CLI research agent"
+- objective: continuously measure actual out-of-sample prediction
+  performance and search for legitimate improvements in predictive
+  accuracy WITHOUT contaminating current predictions or rewriting
+  historical results.
+
+### separation (P002 enforced between the two)
+- prediction_engine: generates_and_freezes_predictions: true
+- optimization_agent: evaluates_and_improves_future_models: true
+- hard_boundary: the optimization agent must NEVER modify the prediction
+  already made for a [current spin — fragment truncated; continues on
+  the next feed]
 
 ## Champion-challenger
 
