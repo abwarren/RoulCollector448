@@ -644,10 +644,9 @@ show:
 
 ### chronological_stream — title: "CHRONOLOGICAL SPIN DATA"
 requirement: show actual chronological spin order without sorting or
-mathematical [arrangement/transformation — fragment truncated mid-
-sentence; continues on the next feed. Expected completion along the
-lines of: "arrangement, grouping, or visual transformation — the raw
-sequence as it actually occurred"]
+mathematical reformatting. (The raw sequence as it actually occurred —
+the ground-truth view the UI-vs-truth audit compares all other views
+against; any transformed view must be explicitly labeled as such.)
 
 test:
 - test_sequence_features
