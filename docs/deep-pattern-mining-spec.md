@@ -263,4 +263,7 @@ cycle's coverage curve is sampled at).
 cycle_analysis: cycle_length_distribution, cycle_similarity,
 cycle_fingerprint_similarity (similarity of full cycle fingerprints —
 coverage curve + velocity + duplicate rate + colour distribution + entropy
-+ activity metrics — between cycles, the basis for cycle-family clustering).
++ activity metrics — between cycles, the basis for cycle-family clustering),
+cycle_completion_tail (the final stretch of a cycle — the last few missing
+numbers, typically the slowest: how long the tail takes, which numbers are
+persistent tail-dwellers, tail length vs cycle length distribution).
