@@ -333,3 +333,48 @@ change_detection:
   regime segmentation boundaries and the assumption-ledger triggers; JS-
   divergence, CUSUM and Page-Hinkley are the detectors, this is the
   change-point localization they jointly produce).
+
+regime_boundaries_requirement: regime boundaries must be DATA-DRIVEN and
+must NOT simply be based on midnight, calendar day, or collector restart
+(session boundaries are convenience labels, never regime evidence).
+
+## Regime lifecycle
+
+regime_lifecycle states:
+- DISCOVERED (a new statistical structure detected)
+- ACTIVE (the regime is currently governing the sequence)
+- STRENGTHENING (evidence for the regime is growing)
+- DECAYING (evidence weakening)
+- INACTIVE (no longer governing; retained historically)
+- REACTIVATED (an INACTIVE regime returns — compared against its stored
+  fingerprint before the reactivation is accepted)
+
+## Regime memory
+
+retain_historical_regimes: true
+compare_current_to_historical: true
+
+Per stored regime:
+- regime_fingerprint
+- duration
+- dominant_patterns
+- cycle_characteristics
+- prediction_performance
+- similar_historical_regimes
+
+## Regime comparison
+
+output (when comparing current vs historical):
+- current_regime
+- most_similar_historical_regimes
+- similarity_score
+- differences
+- current_active_patterns
+
+## Statistical validation
+
+objective: determine whether discovered patterns differ materially from
+appropriate random baselines and whether those differences persist
+outside the discovery [window/sample — truncated in the feed; completes as:
+outside the discovery window/sample — i.e. out-of-sample persistence,
+P003/P004].
