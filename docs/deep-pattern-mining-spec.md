@@ -169,6 +169,8 @@ ensemble:
 - immutable: true
 - fields:
   - prediction_id [continues on the next feed fragment]
+  - timestamp (the freeze moment — when the prediction was generated,
+    persisted, and locked)
 
 ## Prediction lock
 
