@@ -360,8 +360,9 @@ prediction_optimization_agent:
 - prediction_engine: generates_and_freezes_predictions: true
 - optimization_agent: evaluates_and_improves_future_models: true
 - hard_boundary: the optimization agent must NEVER modify the prediction
-  already made for a [current spin — fragment truncated; continues on
-  the next feed]
+  already made for a spin being evaluated. (The frozen record is
+  untouchable; the agent's work flows into FUTURE predictions only —
+  via challenger promotion and improved future models.)
 
 ## Champion-challenger
 
