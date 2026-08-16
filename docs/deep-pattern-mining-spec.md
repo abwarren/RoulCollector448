@@ -309,6 +309,9 @@ record:
   e.g. how far the pattern's frequency deviates from its baseline during
   the episode, or the pattern's current contribution to predictions;
   recorded per episode so reactivations can be compared quantitatively)
+- recurrence_interval (the time/spin gap between activations — how long
+  the pattern was INACTIVE before this reactivation; feeds the return-time
+  distribution and the pattern-reactivation predictions)
 
 ## Model learning
 
