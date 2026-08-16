@@ -688,10 +688,9 @@ purpose:
 ### locking
 required: true
 rule: a second instance of the same job must not start while a previous
-instance [is still running — the overlap lock guarantees single-flight
-execution; a job that exceeds its cadence is logged and the next tick
-skips rather than double-running — fragment truncated; continues on the
-next feed]
+instance is still running. (The overlap lock guarantees single-flight
+execution: if a job exceeds its cadence, the tick is skipped and the
+overlap logged — never double-run.)
 
 ### clean_run_criteria (what "clean and stable" means — checked repeatedly)
 - latest 500 spins reconciled
