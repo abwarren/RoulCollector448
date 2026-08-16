@@ -894,6 +894,48 @@ too.)
 application:
 - localhost:4480 responds successfully
 - frontend loads without fatal errors
+- backend health check passes
+- database connection passes
+- required workers are running
+
+data:
+- latest 500 spins reconciled
+- no unresolved critical data gaps
+- no unexplained duplicates
+- no sequence corruption
+- collector producing valid observations
+
+analytics:
+- pattern engine completes successfully
+- cycle engine completes successfully
+- nested cycle analysis completes
+- regime engine completes
+- statistical validation completes
+
+prediction:
+- prediction engine operational
+- prediction is frozen before result
+- prediction is visible in Prediction Lab
+- prediction evaluation operates correctly
+- no future-data leakage detected
+
+scheduler:
+- scheduled jobs registered
+- reconciliation job executes
+- health-check job executes
+- pattern refresh executes
+- prediction evaluation executes
+- job failures are detectable
+
+testing:
+- unit tests pass
+- integration tests pass
+- critical end-to-end tests pass
+- no known critical defects
+
+### soak_test
+required: true
+objective: >
 
 ### regression (after every fix)
 - rerun_failed_test
