@@ -262,6 +262,9 @@ response:
   - performance
   - baseline_difference
   - parent_model
+  - promotion_status (the champion-challenger verdict: not-promoted /
+    promoted / promoted-then-decayed — with the evidence that drove the
+    decision)
 
 champion_challenger:
 - enabled: true
