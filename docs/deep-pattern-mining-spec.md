@@ -556,6 +556,31 @@ flagged as a pattern WORTH INVESTIGATING — never called a "roulette loop"
 until the raw chronological sequence is extracted and the candidate
 passes the validation contract above.
 
+### Sequence geometry / display-order anomaly detector
+
+objective: determine whether an apparent loop exists in — and attribute
+it to — one of six geometries:
+- raw chronological spin order (the actual outcome order — the only one
+  that can support a temporal claim)
+- the displayed dataset order (the order rows happen to be shown in —
+  a display artifact, never temporal evidence)
+- wheel-relative order (wheel-adjacency structure)
+- row/column layout (the grid geometry of the display itself)
+- repeated blocks (block-level repetition regardless of geometry)
+- actual spin-to-spin transitions (the real transition chain)
+
+The detector's job: when an apparent loop is seen, FIRST determine WHICH
+geometry produces it. A loop that exists only in the displayed dataset
+order or the row/column layout is an anomaly of the display — it must be
+reported as such and must NOT be interpreted as a temporal pattern.
+
+example input (raw chronological order): 32, 33, 34, 35, 36, 4, 16, 15,
+14, ...
+
+calculate: [fragment truncated — continues on the next feed: expected the
+A/B comparison metrics, e.g. loop strength in raw order vs displayed order
+vs wheel-relative order vs row/column layout]
+
 - prediction_ui_visible: true
 - evaluation_engine_operational: true
 - automated_tests_passing: true
