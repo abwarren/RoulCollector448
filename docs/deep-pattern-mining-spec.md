@@ -577,9 +577,8 @@ reported as such and must NOT be interpreted as a temporal pattern.
 example input (raw chronological order): 32, 33, 34, 35, 36, 4, 16, 15,
 14, ...
 
-calculate: [fragment truncated — continues on the next feed: expected the
-A/B comparison metrics, e.g. loop strength in raw order vs displayed order
-vs wheel-relative order vs row/column layout]
+calculate: [fragment truncated — continues on the next feed: A, B, C,
+... the per-geometry loop-strength metrics are arriving one at a time]
 
 - prediction_ui_visible: true
 - evaluation_engine_operational: true
