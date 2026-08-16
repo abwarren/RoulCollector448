@@ -449,6 +449,62 @@ every_canonical_spin_traceable_to:
 - cycle_completion (per-cycle completion progress — unique count vs 37,
   missing numbers remaining, coverage curve at the standard coverage
   points)
+- coverage_velocity (current coverage speed per active cycle)
+- completion_tail (the current completion-tail state — which numbers are
+  still missing as the cycle approaches completion)
+- nested_cycles (the nested/inner cycles currently in play and their
+  position within the outer cycle)
+- historical_cycle_matches (similar past cycles with similarity scores)
+
+### patterns — display:
+- active_patterns
+- reactivating_patterns
+- pattern_strength
+- sample_size
+- historical_performance
+- out_of_sample_status
+
+### prediction_lab — display:
+- next_spin_probability_distribution
+- top_1
+- top_3
+- top_5
+- current_model_version
+- current_regime
+- current_cycle
+- rolling_accuracy
+- baseline_accuracy
+- log_loss
+- brier_score
+- calibration
+- model_status
+
+### research — display:
+- validated_patterns
+- rejected_patterns
+- decaying_patterns
+- model_comparison
+- out_of_sample_results
+- simulation_results
+
+## Testing
+
+### unit_tests — data_integrity (the integrity test matrix)
+- missing_spin
+- duplicate_spin
+- conflicting_game_id
+- invalid_number
+- invalid_color
+- timestamp_anomaly
+- out_of_order_spin
+- source_disagreement
+
+## Self-critical adaptive learning
+
+objective: the system must continuously challenge its own assumptions,
+models, pattern definitions, cycle interpretations, regime classifications,
+and predictive [conclusions — fragment truncated; continues on the next
+feed]
 
 ## Model learning
 
