@@ -396,6 +396,8 @@ tasks:
 - run_walk_forward (every candidate's walk-forward evaluation — the
   mandatory no-leakage harness applied to each challenger before any
   promotion decision)
+- run_out_of_sample (the held-out validation gate — a candidate's
+  advantage must reproduce beyond the discovery window, per P007)
 
 ## Champion-challenger
 
