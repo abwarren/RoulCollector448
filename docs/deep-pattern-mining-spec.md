@@ -403,6 +403,11 @@ methods (the statistical machinery used to compare pattern vs baseline):
   baseline — reported ALONGSIDE any p-value: statistical significance
   without a material effect size is not a claim, and the effect size is
   the quantity that must reproduce out-of-sample)
+- p_value (the probability of observing an effect at least as extreme
+  under the chosen null — reported WITH the effect size and CI, corrected
+  for multiple testing per P004 when many candidate patterns are scanned;
+  a p-value alone is never a claim, and a corrected p-value that fails to
+  clear the family-wise threshold kills the pattern)
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
