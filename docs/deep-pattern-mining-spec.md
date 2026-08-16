@@ -682,6 +682,9 @@ show:
 ### optimization — title: "MODEL IMPROVEMENT"
 show:
 - production model
+- best validated model (the strongest VALIDATED candidate currently
+  available — shown alongside the production model so the gap between
+  what is running and what has been proven is visible)
 - challenger models
 - experimental models
 - recent experiments
