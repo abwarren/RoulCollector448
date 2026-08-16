@@ -483,6 +483,7 @@ cli_monitor:
     requirements.)
   - actions:
     - diagnose [continues on the next feed fragment]
+    - fix (apply the safe minimal repair per the diagnosis)
 
 test:
 - test_sequence_features
