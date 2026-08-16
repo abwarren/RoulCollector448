@@ -364,6 +364,8 @@ prediction_optimization_agent:
   untouchable; the agent's work flows into FUTURE predictions only —
   via challenger promotion and improved future models.)
 
+### monitor: [fragment pending — continues on the next feed]
+
 ## Champion-challenger
 
 failure_analysis:
