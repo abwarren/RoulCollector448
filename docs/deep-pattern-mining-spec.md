@@ -837,6 +837,8 @@ chronological_sequence_audit:
   - last_5000_chronological_spins
   - raw_source_order [continues on the next feed fragment]
   - canonical_database_order
+  - frontend_display_order (the order the UI actually renders — the
+    comparison baseline for the display-artifact attribution)
 
 ## Dashboard (required sections)
 
