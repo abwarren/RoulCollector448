@@ -320,3 +320,6 @@ regime's identity):
 change_detection:
 - preferred_methods: Jensen_Shannon_divergence (between adjacent-window
   feature distributions) — plus drift-based detection of regime changes.
+- CUSUM (cumulative sum control chart on the feature streams / prediction
+  error / coverage velocity — flags sustained shifts that a threshold test
+  would miss; a first-class regime-change detector alongside JS-divergence).
