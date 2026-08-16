@@ -518,6 +518,39 @@ every_canonical_spin_traceable_to:
   contributions, and how does this compare to the baselines; always
   scored against the SAME frozen pre-spin prediction, never a revised one)
 
+critical_rule: the user must ALWAYS be able to see the prediction, but
+visibility must never compromise the blind nature of the prediction
+experiment. (Observing a prediction must not allow it to be revised —
+the freeze happens before the outcome, and the display is a read-only
+window onto the frozen record.)
+
+final_requirement: prediction is an INDEPENDENT experimental system. The
+user can observe every prediction in real time, including the predicted
+number, ranked alternatives, probabilities, model version, current
+regime, current cycle, and confidence. After the next spin occurs, the
+system automatically records whether the prediction was correct and
+updates the prediction-performance history.
+
+The UI must have three clearly separated areas:
+
+### DISCOVERY ENGINE
+- Current regime: R-184
+- Active patterns: 172022
+- Coverage cycle: 73%
+- Nested cycles: 3
+
+### PREDICTION LAB
+- NEXT SPIN (ranked probabilities, frozen):
+  #1  20   8.4%
+  #2  22   7.7%
+  #3  19   6.9%
+  #4  17   6.2%
+  #5  32   5.8%
+- Status: FROZEN
+
+### PREDICTION PERFORMANCE
+- Top-1: 3.81% [continues on the next feed fragment]
+
 ## Self-critical adaptive learning
 
 ## Confidence decay
