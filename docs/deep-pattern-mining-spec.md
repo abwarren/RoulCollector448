@@ -251,6 +251,9 @@ statistical:
   observed at freeze time)
 - future_spin_in_model_selection (choosing a model/weights using
   outcomes after the prediction point)
+- future_spin_in_weight_selection (learning ensemble weights from
+  results that include outcomes after the prediction point — the
+  ensemble's walk-forward weight learning is historical-only)
 
 ## Prediction lock
 
