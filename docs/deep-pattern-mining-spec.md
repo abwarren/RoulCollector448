@@ -538,7 +538,8 @@ prediction:
 - prediction evaluation operational
 - no leakage
 
-scheduler: [continues on the next feed fragment]
+scheduler:
+- jobs registered [continues on the next feed fragment]
 
 test:
 - test_sequence_features
