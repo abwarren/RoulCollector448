@@ -93,10 +93,17 @@ async def no_cache_static(request, call_next):
 
 
 def _now_iso(ts: str) -> datetime.datetime:
+    """Parse an ISO timestamp to an AWARE datetime (assumes local time for
+    naive inputs). Writers mix naive (collector's now().isoformat()) and
+    aware (observer.now_iso's +00:00) timestamps; comparisons must never
+    hit naive-vs-aware TypeError."""
     try:
-        return datetime.datetime.fromisoformat(ts)
+        dt = datetime.datetime.fromisoformat(ts)
     except (TypeError, ValueError):
-        return datetime.datetime.now()
+        return datetime.datetime.now().astimezone()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.datetime.now().astimezone().tzinfo)
+    return dt
 
 
 @app.get("/api/health")
@@ -110,7 +117,8 @@ def health():
         ).fetchone()
         last_captured = last["captured_at"] if last else None
         db_age = (
-            (datetime.datetime.now() - _now_iso(last_captured)).total_seconds()
+            (datetime.datetime.now().astimezone()
+             - _now_iso(last_captured)).total_seconds()
             if last_captured
             else None
         )
