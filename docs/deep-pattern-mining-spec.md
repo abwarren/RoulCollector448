@@ -424,7 +424,8 @@ cli_monitor:
   GENUINELY clean operational state.
 - autonomy:
   - enabled: true
-  - do_not_stop_for_permission: true [continues on the next feed]
+  - do_not_stop_for_permission: true
+- monitor: [fragment pending — continues on the next feed]
 
 test:
 - test_sequence_features
