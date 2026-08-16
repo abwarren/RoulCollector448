@@ -552,6 +552,10 @@ critical_test:
   structure must exist in the RAW chronological observations, not just
   the canonical/displayed views — if it is absent from the raw source
   order, it is not a temporal phenomenon)
+- "Is it present in canonical data?" (the second gate: the structure must
+  survive into the canonical table in sequence_number order — raw +
+  canonical agreement is required before the structure can be a genuine
+  chronological property)
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
