@@ -631,7 +631,9 @@ agent_must:
 
 scale_note: at 10,000 spins the [scheduled jobs / reconciliation windows
 continue to operate identically — fragment truncated; continues on the
-next feed]
+next feed]; extended to 50,000 spins (the rolling-500 window, repair
+window, and job cadences remain unchanged as the dataset grows — the
+integrity machinery is window-bound, not dataset-bound)
 
 ## Sequence loop detection
 
