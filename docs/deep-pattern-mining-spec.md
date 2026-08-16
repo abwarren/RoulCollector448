@@ -812,6 +812,8 @@ show:
 - critical errors resolved (no unresolved critical errors remain — per
   the error_handling priority, everything at priority 1-8 is fixed and
   verified)
+- regression tests pass (the full suite passes after every fix cycle —
+  the last gate before CLEAN)
 
 test:
 - test_sequence_features
