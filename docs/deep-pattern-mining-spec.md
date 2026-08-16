@@ -545,7 +545,57 @@ scheduler:
   history + observability — failures must be visible, not silent)
 
 tests:
-- unit tests pass [continues on the next feed fragment]
+- unit tests pass
+- integration tests pass
+- critical end-to-end tests pass
+
+## Agent execution
+
+agent_execution:
+- autonomy:
+  - enabled: true
+  - non_stop: true
+  - rule: do not stop and ask for permission between implementation
+    steps. Continue through implementation, integration, testing,
+    debugging, reconciliation, prediction testing, optimization, and
+    deployment.
+  - do_not_ask_permission_for:
+    - creating files
+    - modifying code
+    - refactoring
+    - installing safe local dependencies
+    - database migrations
+    - tests
+    - debugging
+    - restarting local services
+    - configuration
+    - scheduler setup
+    - pattern mining
+    - cycle detection
+    - prediction implementation
+    - model experiments
+    - local backtesting
+    - Monte-Carlo
+    - regression testing
+  - exception: ask only when genuinely blocked by credentials, external
+    authorization, unavailable external resources, destructive operations
+    requiring approval, or information that cannot safely be inferred.
+- development_loop:
+  - inspect
+  - implement
+  - test
+  - debug
+  - fix
+  - retest
+  - regression
+  - continue
+- completion_definition — must have:
+  - backend operational
+  - frontend operational
+  - database operational
+  - data integrity operational
+  - 500-spin reconciliation operational
+  - repair system operational
 
 test:
 - test_sequence_features
