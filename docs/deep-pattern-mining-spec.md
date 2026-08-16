@@ -694,7 +694,28 @@ overlap logged — never double-run.)
 
 ### failure_recovery:
 requirements:
-- detect failed cron execution [continues on the next feed fragment]
+- detect failed cron execution
+- record failure (in the job history with success_or_failure, duration,
+  and any error detail)
+- retry safe operations (idempotent/atomic operations are retried where
+  safe; destructive or uncertain operations are NOT auto-retried)
+- continue subsequent scheduled executions (one failed job never halts
+  the schedule — the next tick proceeds normally)
+- never corrupt canonical data because of a failed job (a failed job
+  must leave the canonical data untouched — atomic transactions only;
+  a job that fails mid-write rolls back fully)
+
+## Observability (scheduler dashboard)
+
+display:
+- last successful reconciliation
+- last failed reconciliation
+- next scheduled execution
+- job duration
+- jobs currently running
+- jobs failed
+- jobs skipped_due_to_lock
+- data_gaps_detected
 
 ### clean_run_criteria (what "clean and stable" means — checked repeatedly)
 - latest 500 spins reconciled
