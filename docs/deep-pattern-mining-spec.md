@@ -648,7 +648,45 @@ mathematical reformatting. (The raw sequence as it actually occurred —
 the ground-truth view the UI-vs-truth audit compares all other views
 against; any transformed view must be explicitly labeled as such.)
 
-### prediction_lab: [fragment pending — continues on the next feed]
+### prediction_lab — title: "WHAT DOES THE MODEL PREDICT NEXT?"
+show:
+- primary prediction
+- probability
+- Top-3
+- Top-5
+- Top-10
+- all 37 probabilities
+- status
+- timestamp
+- model version
+- regime
+- cycle
+- confidence
+
+### prediction_performance — title: "WAS THE PREDICTION ACTUALLY ANY GOOD?"
+show:
+- Top-1
+- Top-3
+- Top-5
+- Top-10
+- log loss
+- Brier
+- calibration
+- 2.70% baseline
+- difference from baseline
+- rolling performance graph
+- performance by regime
+- model decay
+- model improvement
+
+### optimization — title: "MODEL IMPROVEMENT"
+show:
+- production model
+- challenger models
+- experimental models
+- recent experiments
+- accepted improvements
+- rejected improvements
 
 test:
 - test_sequence_features
