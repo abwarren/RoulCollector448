@@ -730,6 +730,62 @@ detect:
 - game_id_conflict (the same game_id observed with conflicting numbers
   from different sources — the §25 never-auto-repair condition;
   surfaced as a conflict, never silently resolved)
+- source_conflict (different sources disagreeing on the same spin —
+  recorded as a conflict event, never auto-resolved)
+- impossible_gap (a sequence gap too large to be explained by capture
+  conditions — flagged for manual/unverified handling rather than
+  fabrication)
+
+## Reconciliation
+
+reconciliation:
+- latest_spins: 500
+- frequency:
+  - recent_check: every minute
+  - full_check: every 5 minutes
+- process (12 steps):
+  - load_latest_500
+  - retrieve_authoritative_history_when_available
+  - normalize_sources
+  - match_records
+  - compare_order
+  - compare_values
+  - identify_missing
+  - identify_duplicates
+  - identify_conflicts
+  - repair_deterministic_discrepancies
+  - re-run_validation
+  - mark_verified
+
+### repair_policy
+automatic (the 4 deterministic repairs):
+- recoverable_missing_spin
+- duplicate_canonical_record
+- deterministic_order_error
+- authoritatively_corrected_value
+
+prohibited (never infer a missing number from):
+- infer_missing_number_from_probability
+- infer_missing_number_from_pattern
+- infer_missing_number_from_cycle
+- infer_missing_number_from_neighbours
+- infer_missing_number_from_prediction
+
+unresolved_status: "UNVERIFIED"
+
+## Data provenance
+
+requirement: every canonical spin must be traceable back to the raw
+observation, source, collector session, timestamp, and reconciliation
+history.
+
+## Integrity status
+
+integrity_status:
+- values:
+  - VERIFIED
+  - HEALTHY
+  - DEGRADED [continues on the next feed fragment]
 
 ## Dashboard (required sections)
 
