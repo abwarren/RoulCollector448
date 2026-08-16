@@ -197,11 +197,11 @@ is currently detected. (Honesty over confidence — the default answer is
 
 model_comparison:
 - requirement: Complex models must be compared against simpler models.
-  Complexity must not [fragment truncated mid-sentence — continues on the
-  next feed: expected completion along the lines of "must not be justified
-  without a demonstrated, validated out-of-sample improvement over the
-  simpler model" — P004's simpler_model_explains_same_effect clause; paste
-  the exact wording if it differs]
+  Complexity must not be treated as evidence of superiority. (A complex
+  model earns its place ONLY by a demonstrated, validated out-of-sample
+  improvement over the simpler model it subsumes — P004's
+  simpler_model_explains_same_effect clause; the comparison is recorded
+  with every model's lifecycle record.)
 
 objective: determine which models and discovered structures are USEFUL
 under which regimes and temporal conditions.
