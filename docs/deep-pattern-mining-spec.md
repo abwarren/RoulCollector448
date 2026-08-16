@@ -166,6 +166,8 @@ prediction_output:
 
 ## Prediction models
 
+model_lifecycle: [fragment pending — continues on the next feed]
+
 ### baseline (the simplest comparators — every specialist/ensemble claim
 must beat these, per P004)
 - uniform_37 (1/37 each)
