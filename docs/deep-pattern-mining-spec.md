@@ -464,6 +464,11 @@ hypothesis_record required fields:
 - performance_history
 
 rejection_conditions: [continues in the next feed fragment]
+- fails_validation (the hypothesis fails its statistical validation: the
+  corrected p-value does not clear the family-wise threshold, or the
+  effect size is not material, or the CI straddles the null — the primary
+  rejection condition; a failed validation sends the hypothesis to
+  REJECTED with the full test record preserved)
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
