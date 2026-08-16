@@ -594,7 +594,10 @@ objective: actively search for evidence that contradicts the system's
 STRONGEST current conclusions.
 requirements: maintain_top_active_hypotheses,
 generate_counter_hypotheses, search_for_counter_examples,
-test_counter_hypotheses
+test_counter_hypotheses, record_results (every counter-test outcome —
+whether it confirms or refutes the hypothesis — is recorded in the
+research ledger; a failed contradiction search is itself evidence, and a
+successful one is a rejection)
 
 ## Model learning
 
