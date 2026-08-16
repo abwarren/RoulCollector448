@@ -469,6 +469,13 @@ rejection_conditions: [continues in the next feed fragment]
   effect size is not material, or the CI straddles the null — the primary
   rejection condition; a failed validation sends the hypothesis to
   REJECTED with the full test record preserved)
+- fails_out_of_sample (the hypothesis passed validation but fails on the
+  held-out/out-of-sample data: the effect does not reproduce, the
+  out-of-sample effect size is materially smaller or not significant, or
+  the out-of-sample CI does not contain the discovery effect size —
+  per P003, out-of-sample performance is the only performance that
+  counts; an OOS failure demotes an OUT_OF_SAMPLE_VERIFIED hypothesis to
+  REJECTED with the OOS record appended)
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
