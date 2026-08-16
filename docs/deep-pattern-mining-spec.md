@@ -571,6 +571,19 @@ critical_test:
   the maximal repeating structure, its length, and its occurrence count;
   short repeats (length 2-3) are common by chance, so length + count
   together decide whether the repetition is noteworthy)
+- "What is the expected frequency under a random baseline?" (the sixth
+  gate: simulate the structure's expected occurrence under the
+  appropriate null — uniform-37, markov, or randomized sequence — and
+  compare; the observed frequency must exceed the baseline significantly
+  (with multiple-testing correction) before the recurrence is evidence)
+- "Does it survive out-of-sample testing?" (the seventh gate: the
+  recurrence must persist in held-out data beyond the discovery window —
+  per P003/P004, out-of-sample survival is the final arbiter)
+
+priority_rule: do not dismiss the apparent loop as a visual artifact
+without inspecting the underlying data. Do not call it a genuine roulette
+pattern without verifying [the full critical-test chain — fragment
+truncated; continues on the next feed]
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
