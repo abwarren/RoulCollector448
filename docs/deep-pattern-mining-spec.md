@@ -193,6 +193,55 @@ and the system must EXPLICITLY report that no validated predictive signal
 is currently detected. (Honesty over confidence — the default answer is
 "no signal", never a fabricated edge.)
 
+## Simulation engine
+
+objective: establish how often apparently strong patterns, cycles,
+regimes, and prediction results occur NATURALLY in random data — the null
+calibration for the whole research engine.
+
+monte_carlo:
+- enabled: true
+- preserve_appropriate_baseline: true (each simulation preserves the
+  appropriate null — fair wheel, markov, or randomized sequence)
+- simulations: configurable, default 10000
+- outputs: observed_statistic, simulation_mean, simulation_standard_
+  deviation, 95_percentile, 99_percentile, empirical_p_value, effect_size
+
+requirement: run the SAME pattern-discovery and cycle-mining logic against
+simulated fair datasets to estimate the FALSE-DISCOVERY RATE of the
+research engine itself. (If the miner finds "strong" patterns in random
+data 30% of the time, its discovery threshold is calibrated to that —
+the engine's own FDR is measured, not assumed.)
+
+## Cycle and pattern prediction
+
+objective: test whether discovered cycles, nested cycles, pattern regimes,
+or recurring structures provide MEASURABLE predictive information about
+the next spin.
+
+features (the per-spin feature set the prediction models consume):
+- current_cycle_position
+- cycle_completion_percentage
+- coverage_velocity
+- coverage_acceleration
+- completion_tail
+- active_overlapping_cycles
+- cycle_fingerprint
+- historical_cycle_similarity
+- active_pattern_count
+- pattern_activation_strength
+- pattern_reactivation
+- current_regime
+- historical_regime_similarity
+- neighbour_activity
+- pair_chain_activity
+- double_activity
+- colour_activity
+- wheel_distance_activity
+- entropy
+
+cycle_conclusions: [continues in the next feed fragment]
+
 ## Model learning
 
 model_comparison:
