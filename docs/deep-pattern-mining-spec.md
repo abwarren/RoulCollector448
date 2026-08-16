@@ -996,6 +996,7 @@ completion_definition — the application is NOT complete until:
 - 500-spin reconciliation is operational
 - repair workflow is operational
 - deep pattern mining is operational
+- cycle engine is operational
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
