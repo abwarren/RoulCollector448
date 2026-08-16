@@ -290,7 +290,8 @@ class Repairer:
     # ------------------------------------------------------------------
     # Reconstruct — rebuild the canonical ordering (sequence_no 1..N)
     # ------------------------------------------------------------------
-    def reconstruct_ordering(self, commit: bool = True) -> dict:
+    def reconstruct_ordering(self, commit: bool = True,
+                             preserve_gaps: bool = True) -> dict:
         """Reconstruct the canonical ordering: rebuild sequence_no 1..N for
         ALL rows from the best available chronological evidence (server_ts,
         fallback captured_at, deterministic id tie-break).
@@ -298,9 +299,14 @@ class Repairer:
         Deterministic and idempotent: a consistent dataset (1..N, matching
         the chronological evidence) changes nothing. Fixes collisions
         (duplicate sequence_no), NULL sequence_no, and order violations
-        (sequence contradicting timestamps). Closes gaps by compressing to
-        1..N — the reconciler's game_id-based insertion-shift detection
-        re-opens and backfills any genuine miss from authoritative history.
+        (sequence contradicting timestamps).
+
+        preserve_gaps=True (default): sequence HOLES are preserved, never
+        compressed — the gap lifecycle (recover_gaps) owns holes and must
+        find them still present to attempt recovery from history. With
+        preserve_gaps=False the old compression applies (1,2,4,5 ->
+        1,2,3,4) for callers that want a tight 1..N (e.g. a final sweep
+        AFTER recovery).
 
         Records a RECONSTRUCT_ORDER repair event when anything changed, with
         the before-state anomalies (collisions_found, gaps_found) in
@@ -335,15 +341,41 @@ class Repairer:
 
         ordered = sorted(rows, key=_key)
 
-        changed = 0
-        for i, r in enumerate(ordered, start=1):
-            if r["sequence_no"] != i:
-                changed += 1
-                self.conn.execute(
-                    "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
-                    "WHERE id=?",
-                    (i, now_iso(), r["id"]),
-                )
+        if preserve_gaps:
+            # preserve holes: assign each row (in evidence order) the k-th
+            # smallest PRESENT position (k = evidence index) — holes are
+            # never in `present`, so they're never filled. Collisions,
+            # order violations and NULLs are fixed; holes survive for the
+            # gap-recovery lifecycle. Deterministic + idempotent (a
+            # consistent dataset keeps its positions).
+            present_sorted = sorted(set(seqs))
+            changed = 0
+            for k, r in enumerate(ordered):
+                if k < len(present_sorted):
+                    target = present_sorted[k]
+                else:
+                    # beyond the present set — extend the sequence past the
+                    # last present position (the row is newest, past a
+                    # collision-compressed tail)
+                    target = (present_sorted[-1] + (k - len(present_sorted) + 1)
+                              if present_sorted else k + 1)
+                if r["sequence_no"] != target:
+                    changed += 1
+                    self.conn.execute(
+                        "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
+                        "WHERE id=?",
+                        (target, now_iso(), r["id"]),
+                    )
+        else:
+            changed = 0
+            for i, r in enumerate(ordered, start=1):
+                if r["sequence_no"] != i:
+                    changed += 1
+                    self.conn.execute(
+                        "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
+                        "WHERE id=?",
+                        (i, now_iso(), r["id"]),
+                    )
         if commit:
             self.conn.commit()
         if changed:

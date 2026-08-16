@@ -117,10 +117,12 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
 
         # deterministic repairs only when the authority carries identity
         # (PRD §24/§25); failures are logged, never fatal to the loop.
+        repaired_any = False
         if result.plan.repairable and not result.ok:
             try:
                 rep = repairer.Repairer(conn)
                 rep.apply_plan(result.plan)
+                repaired_any = True
             except repairer.RepairRefused as e:
                 # PRD §25: a refused repair is surfaced, never silent — the
                 # reason + UNVERIFIED marking are already in the queue/rows.
@@ -135,6 +137,30 @@ def run_once(conn=None, window: int = RECONCILE_WINDOW) -> dict:
                                        root_cause="DATA_INTEGRITY")
                 except Exception:
                     pass
+
+        # PRD §13/§26-new — RE-VERIFY: after a repair, re-run the reconcile
+        # so the pass reports the window as verified (or still failing).
+        if repaired_any or not result.ok:
+            try:
+                rows2 = conn.execute(
+                    "SELECT game_id, number, server_ts FROM roulette_spins "
+                    "ORDER BY sequence_no IS NULL, sequence_no DESC, id DESC "
+                    "LIMIT ?", (window,)).fetchall()
+                if rows2:
+                    local2 = [{"game_id": r[0], "number": r[1],
+                               "server_ts": r[2]} for r in rows2]
+                    remote2 = history.DBHistoryProvider().fetch_recent_history(
+                        limit=window)
+                    result2 = reconciler.reconcile(
+                        list(reversed(local2)),
+                        history.StaticHistoryProvider(remote2),
+                        window=window)
+                    if result2.ok or result2.plan.repairable:
+                        result = result2
+                        details = _details(result)
+                        repaired_any = True   # the pass verified after repair
+            except Exception:
+                pass
 
         sev = "CRITICAL" if not result.ok and result.plan.authoritative else "INFO"
         if recon and recon.get("reordered"):
@@ -244,11 +270,112 @@ def recover_gaps(conn, window: int = RECONCILE_WINDOW) -> list:
     return outcomes
 
 
+DEEP_SWEEP_S = 5 * 60    # every 5 minutes: the full-window deep integrity
+                         # sweep (reconcile + data-health + gap recovery),
+                         # decoupled from the collector's own 30/60s loop so
+                         # it runs even when the collector is down.
+
+
+def deep_sweep(conn=None, window: int = RECONCILE_WINDOW) -> dict:
+    """PRD §31 'every 5 min' — the full-window deep integrity sweep.
+
+    Runs independent of the collector: full-window reconciliation against
+    authoritative history + gap recovery + the six data-health signals.
+    Decoupled from the collector's 30/60s loop so it runs even when the
+    collector process is down.
+
+    Returns {"reconciliation": {...}, "gaps": [...], "data_health": {...},
+             "healthy": bool}.
+    """
+    owns_conn = conn is None
+    if owns_conn:
+        conn = schema.connect()
+    try:
+        details = run_once(conn, window=window)          # reconcile + repair
+        outcomes = recover_gaps(conn, window=window)     # gap lifecycle
+        dh = _data_health(conn)                          # six signals
+        healthy = bool(details.get("ok")) and dh["healthy"] \
+            and not any(o["resolution"] == "UNVERIFIED" for o in outcomes)
+        return {
+            "reconciliation": details,
+            "gaps": outcomes,
+            "data_health": dh,
+            "healthy": healthy,
+        }
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def _data_health(conn) -> dict:
+    """Six-signal data-health evaluation (PRD §29) over an open conn."""
+    import json as _json
+    out = {}
+    # sequence health — gaps in the latest window
+    try:
+        rows = conn.execute(
+            "SELECT sequence_no FROM roulette_spins "
+            "WHERE sequence_no IS NOT NULL ORDER BY sequence_no DESC LIMIT ?",
+            (RECONCILE_WINDOW,)).fetchall()
+        seqs = sorted(r[0] for r in rows)
+        gaps = 0
+        if seqs:
+            present = set(seqs)
+            gaps = sum(1 for i in range(seqs[0], seqs[-1] + 1)
+                       if i not in present)
+    except Exception:
+        gaps = 0
+    out["sequence_health"] = gaps == 0
+    # reconciliation health + score from the latest event — but the
+    # standalone worker's run_once doesn't compute the §22 health score
+    # (only the collector's reconcile_task does). Compute it here from the
+    # pass details when the score is absent, so the sweep always reports it.
+    try:
+        row = conn.execute(
+            "SELECT details FROM integrity_events "
+            "WHERE event_type IN ('RECONCILIATION','RECONCILIATION_LIGHT') "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        rec = _json.loads(row["details"]) if row and row["details"] else {}
+        out["reconciliation_health"] = bool(rec.get("ok", False))
+        score = rec.get("score")
+        if score is None:
+            try:
+                from collector.integrity_state import DataHealthScore
+                score = DataHealthScore().compute(
+                    reconciliation=1.0 if out["reconciliation_health"] else 0.0,
+                    sequence=1.0 if out["sequence_health"] else 0.0,
+                    # source_agreement unknown here (no WS-vs-DOM pairs) —
+                    # keep it neutral (1.0 = nothing to contradict)
+                    source_agreement=1.0,
+                )
+            except Exception:
+                score = None
+        out["data_health_score"] = score
+    except Exception:
+        out["reconciliation_health"] = False
+        out["data_health_score"] = None
+    # repair queue
+    try:
+        out["repair_queue"] = conn.execute(
+            "SELECT COUNT(*) FROM repair_events "
+            "WHERE status IN ('OPEN','FAILED','UNVERIFIED')").fetchone()[0]
+    except Exception:
+        out["repair_queue"] = 0
+    score = out["data_health_score"]
+    out["healthy"] = (out["sequence_health"] and out["reconciliation_health"]
+                      and out["repair_queue"] == 0
+                      and (score is None or score >= 75))
+    return out
+
+
 def main() -> None:
     print(f"[{observer.now_iso()}] standalone reconcile worker — "
-          f"light pass every {RECONCILE_LIGHT_S}s, window {RECONCILE_WINDOW}")
+          f"light pass every {RECONCILE_LIGHT_S}s, window {RECONCILE_WINDOW}, "
+          f"deep sweep every {DEEP_SWEEP_S // 60}min")
+    last_deep = 0.0
     while True:
         try:
+            # light pass (30s cadence, PRD §31)
             details = run_once()
             print(f"[{observer.now_iso()}] RECONCILIATION ok={details['ok']} "
                   f"window={details['window']} missing={details['missing']} "
@@ -256,6 +383,17 @@ def main() -> None:
                   f"duplicates={details['duplicates']} "
                   f"reordered={details['reordered']} extras={details['extras']} "
                   f"repairable={details['repairable']} — {details['message']}")
+            # every 5 minutes: the deep sweep (full window + data health)
+            if time.time() - last_deep >= DEEP_SWEEP_S:
+                last_deep = time.time()
+                sweep = deep_sweep()
+                print(f"[{observer.now_iso()}] DEEP SWEEP healthy="
+                      f"{sweep['healthy']} "
+                      f"gaps={len(sweep['gaps'])} "
+                      f"seq={sweep['data_health']['sequence_health']} "
+                      f"recon={sweep['data_health']['reconciliation_health']} "
+                      f"repairs={sweep['data_health']['repair_queue']} "
+                      f"score={sweep['data_health']['data_health_score']}")
         except KeyboardInterrupt:
             print("\n[reconcile] KeyboardInterrupt — exiting cleanly")
             break

@@ -82,11 +82,11 @@ def test_run_once_detects_missing_and_repairs(tmp_path, monkeypatch):
         details = run_once(conn)
 
         # detection: the miss is in the returned details
-        assert details["missing"] == 1
+        assert details["missing"] == 0      # after re-verify, no longer missing
         assert details["window"] == 5
-        assert details["ok"] is False
+        assert details["ok"] is True        # re-verify: repaired -> verified
         assert details["repairable"] is True
-        assert details["message"] == "repair plan generated"
+        assert details["message"] == "verified"
 
         # repair applied: g3 now exists with the authoritative number
         # and its exact position in the window (sequence_no 3 of 5)

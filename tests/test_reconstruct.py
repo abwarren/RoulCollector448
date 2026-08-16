@@ -110,12 +110,27 @@ def test_order_violation_fixed_by_ts(db):
     assert _seqs(db) == ["A", "B", "C", "E", "D"]
 
 
-def test_gap_reported_and_closed(db):
-    """1,2,3,5,6 (hole at 4) -> compressed to 1..5, gap reported."""
+def test_gap_reported_and_preserved(db):
+    """1,2,3,5,6 (hole at 4) -> the gap is REPORTED but PRESERVED (never
+    compressed): the gap lifecycle (recover_gaps) owns holes and must find
+    them still present to attempt recovery from history."""
     for seq, gid in [(1, "A"), (2, "B"), (3, "C"), (5, "D"), (6, "E")]:
         _insert(db, gid, seq, f"2026-08-15T00:00:0{seq}Z", seq)
     r = Repairer(db).reconstruct_ordering()
     assert r["gaps_found"] == 1
+    assert r["reordered"] == 0          # nothing compressed
+    # the hole at 4 survives; the sequence is 1,2,3,5,6
+    seqs = [x[0] for x in db.execute(
+        "SELECT sequence_no FROM roulette_spins ORDER BY sequence_no")]
+    assert seqs == [1, 2, 3, 5, 6]
+
+
+def test_gap_compressed_when_requested(db):
+    """preserve_gaps=False restores the old compression (1,2,3,5,6 ->
+    1,2,3,4,5) for callers that want a tight 1..N AFTER recovery."""
+    for seq, gid in [(1, "A"), (2, "B"), (3, "C"), (5, "D"), (6, "E")]:
+        _insert(db, gid, seq, f"2026-08-15T00:00:0{seq}Z", seq)
+    r = Repairer(db).reconstruct_ordering(preserve_gaps=False)
     assert r["reordered"] == 2          # D 5->4, E 6->5
     assert _seqs(db) == ["A", "B", "C", "D", "E"]
 
