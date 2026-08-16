@@ -548,6 +548,10 @@ critical_test:
 - condition: if the chronological canonical sequence contains repeated
   structures such as [continues on the next feed fragment]
 - "Is the apparent loop real?"
+- "Is it present in chronological raw data?" (the first gate: the
+  structure must exist in the RAW chronological observations, not just
+  the canonical/displayed views — if it is absent from the raw source
+  order, it is not a temporal phenomenon)
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
