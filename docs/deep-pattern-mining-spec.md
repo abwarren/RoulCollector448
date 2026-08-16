@@ -141,6 +141,116 @@ objective: predict the probability distribution of the next roulette
 outcome using only information available before that outcome occurs
 (P003: blind and out-of-sample).
 
+## Prediction lock
+
+prediction_lock:
+- mandatory: true
+- workflow: read_current_verified_state → generate_probability_distribution
+  → persist_prediction → timestamp → freeze → display →
+  wait_for_actual_result → evaluate
+- output: all_37_probabilities: true
+- note: the lock is the P003 enforcement — freeze happens BEFORE the
+  result; display is a read-only window onto the frozen record.
+
+hard_boundary rule: discovery, prediction, and evaluation must remain
+logically separated even when they are [co-located in the same
+application/process — fragment truncated; continues on the next feed]
+
+## Prediction UI (required)
+
+- required: true
+- url: http://localhost:4480/
+- rule: predictions must be visible to the user while remaining
+  architecturally independent from discovery.
+
+### PREDICTION LAB section — must be visible:
+- next spin prediction
+- primary number
+- probability
+- Top-3
+- Top-5
+- Top-10
+- all 37 probabilities
+- prediction status
+- timestamp
+- model version
+- current regime
+- current cycle
+- confidence
+
+### result — after the next spin, show:
+- predicted number
+- actual number
+- Top-1 hit/miss
+- Top-3 hit/miss
+- Top-5 hit/miss
+- score
+
+### PREDICTION PERFORMANCE section — show:
+- rolling Top-1
+- rolling Top-3
+- rolling Top-5
+- rolling Top-10
+- log loss
+- Brier score
+- calibration
+- uniform baseline 2.70%
+- difference from baseline
+
+performance_over_time: [fragment pending — continues on the next feed]
+
+## Champion-challenger
+
+champion_challenger:
+- enabled: true
+- champion: the current production model
+- challenger: a candidate model
+
+promotion — a challenger is promoted ONLY if it:
+- beats champion on unseen data
+- beats appropriate baseline
+- improves across multiple windows
+- not dependent on short-term spike
+- maintains calibration
+- passes statistical testing
+- survives regime testing
+
+## CLI optimization agent (challenger search)
+
+test:
+- test_sequence_features
+- test_regime_features
+- test_ensemble_weights
+- run_walk_forward
+- run_out_of_sample
+- run_monte_carlo
+- compare_challengers
+
+investigate:
+- new_features
+- feature_combinations
+- cycle_position
+- cycle_phase
+- nested_cycle_position
+- overlapping_cycle_state
+- neighbour_relationships
+- pair_persistence
+- pair_reactivation
+- sequence_recurrence
+- wheel_relative_movement
+- colour_regimes
+- repeat_regimes
+- entropy
+- return_time
+- regime_similarity
+- pattern_activation
+- pattern_decay
+- pattern_reactivation
+
+## Cycle comparison
+
+cycle_comparison: [fragment pending — continues on the next feed]
+
 mandatory_rule: EVERY prediction must be generated, timestamped, frozen,
 and persisted BEFORE the actual next spin is observed. A prediction that
 is created or modified after the outcome is visible is void — the frozen
@@ -2009,18 +2119,21 @@ cycle_analysis_extended (further cycle dimensions):
 
 ## Nested cycle analysis
 
+enabled: true
 objective: detect cycles occurring INSIDE larger coverage cycles and
 determine whether inner structures recur at comparable positions or
 phases of the larger cycles.
 
-examples:
-- colour_cycle_inside_37_number_cycle (a colour-coverage cycle nested in a
+detect:
+- colour_cycle_inside_coverage_cycle (a colour-coverage cycle nested in a
   full 37-number cycle)
 - neighbour_cycle_inside_coverage_cycle
-- double_cycle_inside_neighbour_regime
+- double_cycle_inside_neighbour_cycle
 - pair_chain_inside_cycle
-- coverage_cycle_started_before_previous_cycle_completed (overlapping
-  cycles as a nested structure)
+- new_cycle_before_old_cycle_completion (overlapping cycles as a nested
+  structure)
+- cycle_phase_recurrence (inner structures recurring at comparable
+  phases of the outer cycle)
 
 ## Regime engine
 
