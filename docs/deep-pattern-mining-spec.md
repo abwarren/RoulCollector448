@@ -201,7 +201,9 @@ performance_over_time: [fragment pending — continues on the next feed]
 
 ## Champion-challenger
 
-failure_analysis: [fragment pending — continues on the next feed]
+failure_analysis:
+- after_every_evaluated_prediction: [list pending — continues on the next
+  feed]
 
 champion_challenger:
 - enabled: true
