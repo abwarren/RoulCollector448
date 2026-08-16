@@ -302,6 +302,9 @@ again after a period of inactivity.
 record:
 - pattern_id
 - previous_activation_period
+- current_activation_period (the ongoing activation: when it started, how
+  long it has run, and how the current episode compares to the previous
+  one — same structure, different duration, stronger/weaker activation)
 
 ## Model learning
 
