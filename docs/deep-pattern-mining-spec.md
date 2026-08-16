@@ -960,7 +960,16 @@ Pattern shapes include:
 ## Agent execution directive
 
 quality_gate:
-- do_not_declare_complete_if: [list pending — continues on the next feed]
+- do_not_declare_complete_if:
+  - tests are failing
+  - critical errors remain
+  - required functionality is stubbed
+  - required functionality is mocked instead of implemented
+  - data integrity is unreliable
+  - prediction pipeline leaks future data
+  - critical APIs are broken
+  - frontend cannot load
+  - database cannot connect
 
 objective: take RoulCollector448 from its current state through
 implementation, integration, testing, debugging, validation, and local
