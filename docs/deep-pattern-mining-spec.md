@@ -213,6 +213,7 @@ every prediction should record:
 
 ## Blind prediction evaluation
 
+walk_forward: [fragment pending — continues on the next feed]
 objective: determine whether the prediction engine provides GENUINE
 predictive information and whether performance improves, remains stable,
 or decays over time (persistence/changes measured across the walk-forward
