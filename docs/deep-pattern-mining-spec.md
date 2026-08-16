@@ -414,6 +414,56 @@ methods (the statistical machinery used to compare pattern vs baseline):
   miner scans hundreds of candidates, raw p-values overstate the evidence;
   FDR-adjusted q-values are the decision quantity for which patterns
   survive to the reproducibility gate)
+- multiple_testing_correction (the umbrella requirement: the system MUST
+  account for the fact that searching thousands or millions of possible
+  patterns naturally generates apparently significant patterns by chance.
+  Applies family-wise (Bonferroni/Holm) or FDR (Benjamini-Hochberg) control
+  over the entire candidate family per scan, and records the correction
+  method + family size with every claimed pattern)
+
+## False discovery policy
+
+The system must NOT promote a pattern to a claim when any of these hold:
+- do_not_promote_pattern_based_only_on_raw_frequency (a number/colour/run
+  appearing often is not evidence — compare against the baseline
+  frequency, not the raw count)
+- do_not_promote_pattern_based_only_on_single_period (an effect in one
+  time period is not a pattern — it must persist across periods/scales)
+- do_not_promote_pattern_without_holdout_validation (every promotion must
+  pass a held-out validation set, never the discovery data)
+- do_not_promote_pattern_without_multiple_testing_control_where_applicable
+  (if the pattern came from a large candidate search, correction applies)
+
+## Hypothesis engine
+
+lifecycle states:
+- DISCOVERED (candidate found by the miner)
+- UNDER_TEST (entering statistical validation)
+- VALIDATED (passed in-sample statistical challenge)
+- OUT_OF_SAMPLE_VERIFIED (passed holdout/out-of-sample verification)
+- ACTIVE (currently informing prediction)
+- DECAYING (evidence weakening)
+- REJECTED (failed validation — recorded, never deleted)
+- RETIRED (previously ACTIVE, no longer supported)
+- REACTIVATED (a RETIRED hypothesis returns with new evidence)
+
+hypothesis_record required fields:
+- hypothesis_id
+- discovery_timestamp
+- pattern_definition
+- discovery_dataset
+- discovery_sample_size
+- baseline
+- validation_dataset
+- validation_result
+- out_of_sample_dataset
+- out_of_sample_result
+- statistical_tests
+- current_status
+- last_evaluated
+- performance_history
+
+rejection_conditions: [continues in the next feed fragment]
 
 All comparisons must also respect P004: multiple-testing correction when
 many candidate patterns are scanned, reproducibility in a fresh sample,
