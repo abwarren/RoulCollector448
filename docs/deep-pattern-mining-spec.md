@@ -596,6 +596,7 @@ agent_execution:
   - data integrity operational
   - 500-spin reconciliation operational
   - repair system operational
+  - pattern mining operational
 
 test:
 - test_sequence_features
