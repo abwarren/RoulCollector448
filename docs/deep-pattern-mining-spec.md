@@ -1071,6 +1071,9 @@ autonomous_debugging (the diagnostic toolkit used without asking):
 - inspect_network_requests
 - inspect_browser_console_errors
 - inspect_application_health
+- make_reasonable_repairs (apply safe, reversible fixes autonomously —
+  restart a service, correct a config, patch an obvious defect — and
+  verify the fix; escalate only per the exception rule)
 
 ## Pattern identity rules
 
