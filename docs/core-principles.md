@@ -1,75 +1,88 @@
-# RoulCollector448 — Five Non-Negotiable Principles
+# RoulCollector448 — Core Principles (P001–P013)
 
-These five principles are the contract for the deep-pattern-mining,
-cycle-analysis, and blind-prediction layers. Every module, feature, and
-PRD section in this system is subordinate to them. Any design decision
-that conflicts with a principle here is wrong by definition.
+Source of truth for the whole platform. Every module, feature, and PRD
+section is subordinate to these. Any design decision that conflicts with a
+principle here is wrong by definition.
 
-> A sufficiently sophisticated pattern-mining system can become very good
-> at finding evidence for its own assumptions rather than finding what is
-> actually present in the data. These principles exist to prevent that.
+## Project
 
----
+- name: RoulCollector448
+- repository: https://github.com/abwarren/RoulCollector448
+- local_url: http://localhost:4480/
 
-## P001 — Data must be correct.
+## Directive
 
-The integrity pipeline (reconciliation, repair, verification, audit) is
-the foundation. No analysis is trusted unless the data it consumes is
-verified. Never repair from inference — only from authoritative identity.
-Never destroy raw evidence. The rolling-500 trust indicator is the gate:
-analysis may only run over VERIFIED windows.
+Build, complete, test, self-monitor, and locally deploy RoulCollector448
+as a research-grade roulette data integrity, deep pattern discovery, cycle
+analysis, regime detection, blind prediction, prediction evaluation, and
+continuous model-improvement platform.
 
-## P002 — Discovery and prediction must be separated.
+The system must derive conclusions from verified data rather than
+assumptions. It must be self-critical, capable of changing its assumptions
+when new evidence contradicts them, and capable of rejecting its own
+hypotheses, patterns, models, and predictions.
 
-The pattern-discovery subsystem and the prediction engine are distinct
-systems with distinct code paths, distinct data access, and distinct
-audit trails. Discovery may inform prediction via an explicit, versioned
-hand-off — it may never be conflated with it. A discovery is a hypothesis;
-a prediction is a bet. They answer different questions.
+Discovery and prediction must remain architecturally separate. Predictions
+must nevertheless be prominently visible in the application. A separate
+CLI optimization agent must continuously measure prediction accuracy and
+search for legitimate improvements. (Prediction accuracy must be
+continuously measured and improved over time.)
 
-## P003 — Predictions must be blind and out-of-sample.
+## Core principles
 
-The prediction engine may use only information available before the
-outcome it predicts. No lookahead, no leakage, no post-hoc refitting on
-the predicted window. Training/validation/test splits are immutable per
-model version. Out-of-sample performance is the only performance that
-counts — in-sample performance is reported but never claimed.
+### P001 — Data integrity first
+No analytical conclusion or prediction may rely on data that has not
+passed the applicable integrity checks.
 
-## P004 — Every claimed edge must survive statistical challenge.
+### P002 — Discovery and prediction separation
+Discovery determines what the data has discovered. Prediction
+independently determines what the model predicts next. Evaluation
+determines whether the prediction was actually any good.
 
-Any discovered structure that is claimed as real must:
-- survive multiple-testing correction (a pattern found by scanning many
-  candidates is cheap; a pattern that survives Bonferroni/Holm-style
-  correction is evidence),
-- be reproducible (the effect must appear in a fresh sample, not just the
-  window that suggested it),
-- be compared against a simpler baseline (uniform-37 outcome,
-  historical frequency, recent frequency) and beat it,
-- and be evaluated across multiple temporal scales (micro/short/medium/
-  long/extended) before any claim is made.
+### P003 — Blind prediction
+Every next-spin prediction must be generated, persisted, timestamped, and
+frozen before the actual next result is observed.
 
-A claim that fails any of these is recorded as tested-and-refuted, not
-deleted — refutations are research data.
+### P004 — Evidence over assumptions
+No pattern, cycle, neighbour relationship, regime, model, or predictive
+edge may be assumed to exist. It must be discovered and validated from
+data.
 
-## P005 — The system must be willing to change its mind.
+### P005 — Self-critical
+The system must actively search for evidence that its strongest
+conclusions are wrong.
 
-No assumption, pattern, or model is ever protected from contradictory
-evidence. VALIDATED means "supported by current evidence", not
-"permanently proven". New verified data can strengthen, weaken, or
-contradict any prior conclusion. The research ledger records every
-assumption's lifecycle (SUPPORTED → WEAKENING → CONTRADICTED → REJECTED/
-REVISED) and every model version is immutable — but the system's beliefs
-are always revisable. The system must never defend an existing theory;
-it must test it.
+### P006 — Adaptability
+New verified data must be capable of changing, weakening, replacing, or
+completely invalidating previous assumptions, patterns, models, cycle
+interpretations, regime definitions, and predictions.
 
----
+### P007 — Out-of-sample validation
+No predictive claim may be promoted based only on the data used to
+discover it.
 
-## How the principles map to the build
+### P008 — No fabricated data
+Missing roulette results must never be inferred from probability,
+hotness, coldness, cycles, neighbours, or model predictions.
 
-| Principle | Enforced by |
-|---|---|
-| P001 data correct | integrity pipeline (§11-§39): reconciler, repairer, rolling-500, audit trail |
-| P002 discovery/prediction separation | separate modules: `pattern_miner` vs `prediction_engine`; versioned hand-off |
-| P003 blind out-of-sample | immutable train/test splits per model version; no-lookahead data access |
-| P004 statistical challenge | multiple-testing correction, reproducibility gate, baseline comparison, multi-scale evaluation |
-| P005 change its mind | research ledger (assumption lifecycle), model versioning, hypothesis tracking |
+### P009 — Immutable history
+Raw observations and historical predictions are immutable. Corrections
+are represented as auditable reconciliation events.
+
+### P010 — No forced signal
+The system must be allowed to conclude that no meaningful predictive
+signal currently exists.
+
+### P011 — Simple models must compete
+Complex models must continuously compete against simple baselines.
+Complexity is never evidence of superiority.
+
+### P012 — The system must be willing to change its mind
+Previously validated does not mean permanently true. Every conclusion
+remains subject to future evidence.
+
+### P013 — No premature completion
+Documentation, specification, compilation, or partial implementation does
+not constitute completion. The application must be operational, tested,
+and demonstrably running at http://localhost:4480/ before completion may
+be declared.

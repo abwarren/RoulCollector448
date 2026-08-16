@@ -1845,6 +1845,96 @@ separately and must NEVER be treated as identical without evidence.
 (Example: "17 -> 20 -> 22" exact vs its structural colour/parity/neighbour
 equivalents — a structural match is a hypothesis to test, not an identity.)
 
+structural_equivalence:
+- enabled: true
+- rule: detect mathematically equivalent or wheel-relative structures
+  SEPARATELY from exact-number sequences. (Structural equivalence is
+  computed and recorded as its own pattern class — never conflated with
+  exact matches; an equivalence is a discovery candidate, not an identity
+  claim.)
+
+pattern_depth (the levels at which patterns are analyzed):
+- spin
+- pair
+- triplet
+- sequence
+- pattern_family
+- regime
+- regime_transition
+- recurring_regime
+- cycle_within_cycle
+
+## Pattern families (extended)
+
+### numbers
+- frequency
+- return_time
+- inter_arrival_distribution
+- early_or_late_cycle_position
+
+### repeats
+- double
+- triple
+- quadruple
+- repeat_run
+- repeat_reactivation
+
+### colours
+- red_runs
+- black_runs
+- alternation
+- colour_regimes
+- colour_regime_changes
+- colour_entropy
+
+### wheel
+- clockwise_distance
+- counter_clockwise_distance
+- short_move
+- long_move
+- direction_continuation
+- direction_reversal
+- wheel_relative_sequence
+
+### neighbours
+- number_to_neighbour
+- neighbour_to_neighbour
+- neighbour_pair
+- neighbour_pair_chain
+- neighbour_cluster
+- cluster_activation
+- cluster_migration
+- cluster_reactivation
+
+### transitions
+- A_to_B
+- A_to_B_to_C
+- longer_sequence
+- pair_to_pair
+- sequence_recurrence
+- sequence_reactivation
+
+### structural
+- exact_sequence
+- wheel_relative_sequence
+- colour_structure
+- neighbour_structure
+- repeat_structure
+- composite_structure
+
+## Cycle engine (overlap rule)
+
+overlap_rule: a new cycle may begin before an existing cycle has
+completed. ALL active cycles must be tracked independently.
+
+## Promotion requirements
+
+A pattern may be promoted (to ACTIVE / displayed as a claim) only when:
+- historical_validation (passed on historical data)
+- random_baseline_comparison (beat the appropriate random baseline)
+- [plus the existing promotion chain: holdout validation + multiple-
+  testing control — per the false discovery policy]
+
 ## Cycle engine
 
 objective: discover coverage cycles and overlapping cycles across the
