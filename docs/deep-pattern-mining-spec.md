@@ -172,6 +172,64 @@ model_lifecycle: [fragment pending — continues on the next feed]
 - TESTING (the candidate is being trained + evaluated on the discovery
   split and validated on the validation split — walk-forward rules apply,
   no future data, results recorded but not yet trusted)
+- VALIDATED (passed in-sample statistical challenge — corrected p-value,
+  material effect size, CI excluding the null, beat the baseline)
+- OUT_OF_SAMPLE_VERIFIED (passed the held-out out-of-sample evaluation —
+  the effect reproduces outside the discovery period; the only state that
+  may inform ACTIVE prediction per P003)
+- ACTIVE (currently contributing to the ensemble/predictions)
+- DECAYING (rolling performance declining / significance lost / regime
+  change — weight reduced, monitored for FAILED or recovery)
+- RETIRED (no longer contributing; version preserved immutably with all
+  validation/OOS records)
+- REACTIVATED (a RETIRED model returns when fresh walk-forward evidence
+  re-validates it — re-verified against baseline before reactivation)
+
+### no_signal_state
+enabled: true
+behavior: if no model provides evidence materially better than baseline,
+the probability distribution must move toward the appropriate baseline
+and the system must EXPLICITLY report that no validated predictive signal
+is currently detected. (Honesty over confidence — the default answer is
+"no signal", never a fabricated edge.)
+
+## Model learning
+
+objective: determine which models and discovered structures are USEFUL
+under which regimes and temporal conditions.
+
+### adaptive_weights
+inputs:
+- walk_forward_accuracy
+- log_loss
+- brier_score
+- calibration
+- out_of_sample_performance
+- current_regime_performance
+- historical_regime_performance
+- sample_size
+
+rules:
+- increase_weight_only_after_validated_improvement
+- reduce_weight_when_performance_decays
+- do_not_reweight_using_future_data (P003)
+- regularize_weight_changes (no spikes)
+
+### model_decay
+detect:
+- rolling_performance_decline
+- loss_of_statistical_significance
+- regime_change
+- out_of_sample_failure
+
+statuses: STABLE, IMPROVING, DECAYING, FAILED
+
+### regime_specific_performance
+requirement: measure each model INDEPENDENTLY BY REGIME rather than
+assuming a model has [uniform performance across regimes — completes as:
+a single global score. A model may be excellent in one regime and noise in
+another; only regime-conditional performance justifies regime-conditional
+weighting.]
 
 ### baseline (the simplest comparators — every specialist/ensemble claim
 must beat these, per P004)
