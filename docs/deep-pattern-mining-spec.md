@@ -659,6 +659,20 @@ responsibilities:
 responsibilities:
 - generate probability distribution [continues on the next feed]
 
+boundary_note: all three systems are presented together in the user
+interface — discovery, prediction, and evaluation each get their own
+clearly separated area (the dashboard's question-titled sections) while
+remaining architecturally independent underneath.
+
+## Data integrity
+
+data_integrity:
+- objective: maintain a verified, chronological, auditable roulette
+  dataset and detect and repair recoverable data problems before they
+  fall outside the available [recovery window (the 500-spin active
+  verification+repair window — fragment truncated; continues on the next
+  feed)]
+
 ## Dashboard (required sections)
 
 ### data_integrity — show:
