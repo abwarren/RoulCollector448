@@ -167,6 +167,8 @@ prediction_output:
 ## Prediction models
 
 model_lifecycle: [fragment pending — continues on the next feed]
+- DISCOVERED (a candidate model structure proposed by the miner/model
+  search — not yet trained, evaluated, or trusted; carries no claim)
 
 ### baseline (the simplest comparators — every specialist/ensemble claim
 must beat these, per P004)
