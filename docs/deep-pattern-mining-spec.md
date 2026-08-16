@@ -388,6 +388,60 @@ output: [continues in the next feed fragment]
 - active_cycle (the current coverage-cycle state that shaped this
   prediction — cycle id/position, completion percentage, velocity, and
   the cycle-based contribution to the distribution)
+- active_regime (the current regime state that shaped this prediction —
+  regime id, duration, and the regime-conditional contribution)
+- historical_regime_matches (the similar historical regimes the current
+  one is being compared against, with their similarity scores)
+- model_component_contributions (per-component contribution weights from
+  the ensemble — how much each model shaped the final distribution)
+- confidence (the model's own confidence in this prediction — calibrated
+  where possible, never inflated)
+- baseline_difference (the distribution's divergence from the baseline —
+  uniform-37 / historical / recent / markov — the honest statement of how
+  unusual this prediction is)
+
+rule: the explanation must describe the EVIDENCE the model used and must
+NOT imply causation merely because a feature was associated with a
+prediction. (Association ≠ cause; the explanation reports influence, not
+mechanism.)
+
+## Data quality requirements
+
+### canonical_dataset target
+- recent_500_verified: "500/500"
+- unresolved_recent_discrepancies: 0
+
+### historical_dataset requirements
+- retain_verified_records_indefinitely
+- retain_raw_observations_for_forensic_audit
+- retain_repair_history
+- track_unverified_records_explicitly
+
+### provenance
+every_canonical_spin_traceable_to:
+- raw_observation
+- collector_session
+- source
+- timestamp
+
+## Dashboard sections
+
+### data_integrity — display
+- integrity_score
+- verified_count
+- unverified_count
+- missing_count
+- duplicate_count
+- conflict_count
+- recent_repairs
+- last_reconciliation
+
+### current_regime — display
+- regime_id
+- duration
+- active_patterns
+- decaying_patterns
+- historical_regime_matches
 
 ## Model learning
 
