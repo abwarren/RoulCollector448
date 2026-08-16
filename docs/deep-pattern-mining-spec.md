@@ -598,6 +598,7 @@ agent_execution:
   - repair system operational
   - pattern mining operational
   - cycle engine operational
+  - nested cycle engine operational
 
 test:
 - test_sequence_features
