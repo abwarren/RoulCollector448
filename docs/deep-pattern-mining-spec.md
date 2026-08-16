@@ -881,6 +881,13 @@ The ledger records every adaptive event as an entry:
 - REGIME_CHANGED
 - CONCEPT_DRIFT_DETECTED
 
+decision_rule: when new verified data materially contradicts an existing
+assumption, the [system must — fragment truncated mid-sentence; continues
+on the next feed. Expected completion along the lines of: "the system
+must act on the contradiction — downgrade/reject the assumption and
+record the decision, rather than waiting for further confirmation — paste
+the exact wording if it differs]
+
 ## Learning from failure
 
 requirement: prediction failures must be treated as INFORMATION about the
