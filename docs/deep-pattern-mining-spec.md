@@ -499,7 +499,32 @@ every_canonical_spin_traceable_to:
 - out_of_order_spin
 - source_disagreement
 
-## Discovery-prediction boundary
+## Loop / recurrence detector
+
+- objective: determine whether an apparent loop exists in:
+  - overlapping_repeating_block (the same block overlapping across the
+    sequence)
+  - partial_sequence_recurrence (a partial sequence recurring)
+  - nested_sequence (a sequence nested inside a larger one)
+  - wheel_relative_recurrence (recurrence in wheel-relative terms)
+  - transition_matrix_recurrence (recurrence in the transition matrix)
+  - cycle_fingerprint_recurrence (recurrence of cycle fingerprints)
+
+### validation (required)
+- operate_on_raw_chronological_order (the analysis runs on the raw
+  chronological sequence, never on a reordered/displayed view)
+- compare_against_random_baseline
+- measure_occurrence_count
+- measure_sequence_length
+- measure_recurrence_interval
+- measure_overlap
+- measure_statistical_significance
+- validate_out_of_sample
+
+### display_order_warning
+rule: never infer a temporal pattern solely from the visual arrangement of
+rows — e.g. "9 8 7 6 5 3 2 1 0 36 35 34 33 32 ..." descending display order
+must never be mistaken for the actual chronological order of outcomes.
 
 - prediction_ui_visible: true
 - evaluation_engine_operational: true
