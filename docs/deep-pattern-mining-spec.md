@@ -955,13 +955,15 @@ final_status — possible states:
 - STABLE (all checks passing)
 - CLEAN (the full clean-state matrix holds + soak has held)
 
-clean_requires (the CLEAN state demands all six):
+clean_requires (the CLEAN state demands all seven):
 - application operational
 - scheduled jobs operational
 - data integrity healthy
 - critical tests passing
 - prediction separation verified
 - no critical runtime errors
+- http://localhost:4480/ verified (the endpoint is programmatically
+  verified reachable and serving)
 
 ### regression (after every fix)
 - rerun_failed_test
