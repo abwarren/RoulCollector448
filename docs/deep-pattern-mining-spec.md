@@ -599,6 +599,13 @@ whether it confirms or refutes the hypothesis — is recorded in the
 research ledger; a failed contradiction search is itself evidence, and a
 successful one is a rejection)
 
+rule: the system must spend analytical resources trying to disprove
+strong [conclusions — fragment truncated mid-sentence; continues on the
+next feed. Expected completion along the lines of: "strong conclusions —
+the strongest conclusions get the most counter-testing; a conclusion that
+has never been seriously attacked is not yet trusted — paste the exact
+wording if it differs]
+
 ## Model learning
 
 model_comparison:
