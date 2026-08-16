@@ -190,3 +190,74 @@ after_failure: identify active patterns affected, reassess.
 - browser_recovery
 - collector_watchdog
 - data_health_watchdog
+
+## Neighbours (wheel-adjacency patterns)
+
+Neighbour analysis on the wheel layout (roulette wheel order, e.g.
+0-32-15-19-4-21-2-25-17-34-6-27-13-36-11-30-8-23-10-5-24-16-33-1-20-14-31-9-22-18-29-7-28-12-35-3-26 for a single-zero wheel).
+
+Pattern shapes include:
+- "Nn -> Nn -> Nn" (neighbour sequences — the physical wheel order)
+- "R -> R -> B -> B" (colour sequences / structural forms)
+
+## Agent execution directive
+
+objective: take RoulCollector448 from its current state through
+implementation, integration, testing, debugging, validation, and local
+deployment. Continue working until the application is complete,
+operational, tested, and accessible at http://localhost:4480/.
+
+autonomy:
+- enabled: true
+- non_stop_execution: true
+
+workflow: identify_missing_requirements → implement_next_requirement →
+run_relevant_tests → inspect_failures → debug → fix → retest →
+run_regression_tests → continue_to_next_requirement
+
+failure_handling: a failure/exception/compile error/failed test/dependency
+problem/port conflict/DB error/browser error/runtime crash is NOT a reason
+to stop. Diagnose → fix → restart the affected component → continue.
+
+escalation: first diagnose, second attempt_safe_automatic_fix, third
+retest, fourth try_alternative_implementation, fifth — ask the user only
+if the problem genuinely requires unavailable information, credentials,
+hardware access, or an external decision.
+
+port_requirement: frontend_or_application_port 4480;
+required_url http://localhost:4480/; protocol HTTP. The final application
+must be reachable at exactly http://localhost:4480/. If port 4480 is
+occupied by a stale development process, diagnose and resolve (kill the
+stale process, restart cleanly).
+
+## Pattern identity rules
+
+Exact patterns and structurally equivalent patterns must be tracked
+separately and must NEVER be treated as identical without evidence.
+(Example: "17 -> 20 -> 22" exact vs its structural colour/parity/neighbour
+equivalents — a structural match is a hypothesis to test, not an identity.)
+
+## Cycle engine
+
+objective: discover coverage cycles and overlapping cycles across the
+verified sequence, including cycles that begin before previous cycles
+have completed.
+
+roulette_outcomes: count 37, values 0-36.
+
+cycle_definition:
+- strict_cycle: starts at the first observed unique outcome after the
+  previous cycle reset; completes when all 37 outcomes have appeared.
+- overlapping_cycle: new candidate cycles may begin while earlier cycles
+  are still incomplete; multiple active cycles tracked simultaneously.
+
+cycle_metrics (per cycle): cycle_id, start_spin, end_spin, duration_spins,
+unique_count, missing_numbers, completion_status, coverage_curve,
+coverage_velocity, coverage_acceleration, completion_tail, duplicate_rate,
+colour_distribution, neighbour_activity, double_activity, pair_activity,
+sequence_activity, entropy, cycle_fingerprint.
+
+coverage_points: 10, 20, 25, 30, 32, 34, 35, 36, 37 (the milestones a
+cycle's coverage curve is sampled at).
+
+cycle_analysis: cycle_length_distribution, cycle_similarity.
