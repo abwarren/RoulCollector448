@@ -679,7 +679,7 @@ show:
 - model decay
 - model improvement
 
-### optimization — title: "MODEL IMPROVEMENT"
+### optimization — title: "IS THE MODEL IMPROVING?"
 show:
 - production model
 - best validated model (the strongest VALIDATED candidate currently
@@ -880,6 +880,12 @@ pattern disappears, record its decay rather than forcing it to remain
 valid. If a new pattern appears, test it from first principles. The system
 must continuously learn from verified evidence while keeping discovery,
 prediction, and evaluation separate.
+
+The prediction optimization agent and CLI monitor must continue operating
+INDEPENDENTLY after initial deployment, so that prediction accuracy can be
+[continuously measured and improved over time — fragment truncated;
+continues on the next feed. They are persistent services, not
+one-time build steps]
 
 test:
 - test_sequence_features
