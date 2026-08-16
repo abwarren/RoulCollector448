@@ -289,6 +289,42 @@ promotion — a challenger is promoted ONLY if it:
 
 ## CLI optimization agent (challenger search)
 
+autonomy:
+- do_not_stop_for_permission: true
+- rule: continue implementing, testing, rejecting, improving, and
+  comparing candidate models without asking for permission after each
+  experiment.
+- exception: ask only when an external credential, unavailable resource,
+  destructive operation, or genuinely unknowable requirement is
+  encountered.
+
+research_ledger:
+- immutable: true
+- rule: never rewrite research history to make a model, pattern, or
+  prediction look more successful. (Append-only; corrections are new
+  entries with references.)
+
+### pattern entries: pattern_id, definition, discovery_time, dataset,
+sample_size, baseline, observed_statistic, validation, out_of_sample,
+status
+
+### model entries: model_id, version, features, training_period,
+validation_period, out_of_sample_period, performance, baseline, status
+
+### adaptive events: ASSUMPTION_CREATED, ASSUMPTION_SUPPORTED,
+ASSUMPTION_WEAKENED, ASSUMPTION_CONTRADICTED, ASSUMPTION_REJECTED,
+PATTERN_REVISED, PATTERN_RETIRED, MODEL_UPDATED, MODEL_RETIRED,
+REGIME_CHANGED, CONCEPT_DRIFT, NEW_HYPOTHESIS
+
+## Monte Carlo (null calibration)
+
+monte_carlo:
+- enabled: true
+- objective: determine how often apparently strong patterns and
+  prediction results arise [naturally in random data — the engine's own
+  false-discovery calibration; fragment truncated; continues on the next
+  feed]
+
 test:
 - test_sequence_features
 - test_regime_features
