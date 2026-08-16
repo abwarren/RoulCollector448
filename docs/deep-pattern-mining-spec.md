@@ -691,6 +691,8 @@ show:
 - accepted improvements
 - rejected improvements
 
+### self_criticism: [fragment pending — continues on the next feed]
+
 test:
 - test_sequence_features
 - test_regime_features
