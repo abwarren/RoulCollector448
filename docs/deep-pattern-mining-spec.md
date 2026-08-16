@@ -556,6 +556,9 @@ The UI must have three clearly separated areas:
 - Log loss: [value pending — continues on the next feed fragment]
 - Baseline: 2.70% (the uniform single-number baseline — shown alongside
   every performance figure so the edge over random is always visible)
+- [performance graph] — the rolling performance visualization (accuracy /
+  log-loss / calibration curves over time vs the baseline, so decay,
+  improvement, and regime shifts are visible at a glance)
 
 ## Self-critical adaptive learning
 
