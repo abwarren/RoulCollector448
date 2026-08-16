@@ -141,6 +141,34 @@ objective: predict the probability distribution of the next roulette
 outcome using only information available before that outcome occurs
 (P003: blind and out-of-sample).
 
+### prediction_lock (mandatory) — workflow
+- read_current_verified_state
+- generate_probability_distribution
+- persist_prediction
+- timestamp
+- freeze
+- display
+- wait_for_actual_result
+- evaluate
+- output: all_37_probabilities: true
+
+### models
+baselines: uniform_37, historical_frequency, recent_frequency,
+simple_markov
+specialist (10): transition_model, higher_order_transition,
+neighbour_model, pair_chain_model, sequence_model, wheel_relative_model,
+cycle_model, nested_cycle_model, coverage_model, regime_model,
+deep_pattern_model
+ensemble:
+- enabled: true
+- weights: learned (walk-forward, from historical performance only),
+  regularized, future_data_prohibited (no future results in weight
+  learning — the ensemble cannot peek)
+
+### prediction_record
+- immutable: true
+- fields: [continues on the next feed fragment]
+
 ## Prediction lock
 
 prediction_lock:
