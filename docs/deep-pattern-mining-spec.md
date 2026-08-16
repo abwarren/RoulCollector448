@@ -379,6 +379,9 @@ output: [continues in the next feed fragment]
 - probability_distribution (the full 37-way distribution the explanation
   refers to — the complete set of probabilities the top-N is drawn from,
   so the explanation can be checked against the actual prediction)
+- dominant_features (the feature groups that most influenced this
+  prediction — e.g. regime state, cycle position, neighbour activity —
+  ranked by their contribution, per the model_attribution record)
 
 ## Model learning
 
