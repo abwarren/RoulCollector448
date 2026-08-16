@@ -426,7 +426,8 @@ cli_monitor:
   - enabled: true
   - do_not_stop_for_permission: true
 - monitor:
-  - application: [fragment pending — continues on the next feed]
+  - application:
+    - http://localhost:4480/ [continues on the next feed fragment]
 
 test:
 - test_sequence_features
