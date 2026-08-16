@@ -214,6 +214,9 @@ promotion — a challenger is promoted ONLY if it:
 - maintains calibration
 - passes statistical testing
 - survives regime testing
+- survives out_of_sample_testing (explicit OOS gate beyond 'beats
+  champion on unseen data' — the challenger's advantage must reproduce
+  on held-out data, per P007)
 
 ## CLI optimization agent (challenger search)
 
