@@ -398,6 +398,9 @@ tasks:
   promotion decision)
 - run_out_of_sample (the held-out validation gate — a candidate's
   advantage must reproduce beyond the discovery window, per P007)
+- run_monte_carlo (the false-discovery calibration — run the candidate
+  against simulated fair data and compare its apparent-signal rate
+  against the null)
 
 ## Champion-challenger
 
