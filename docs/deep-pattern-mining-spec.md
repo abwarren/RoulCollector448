@@ -746,6 +746,9 @@ show:
 
 ### research
 - false pattern on random data [continues on the next feed fragment]
+- multiple testing (the FDR/BH correction applied to scanned candidates —
+  verifying that the discovery engine's significance claims survive
+  multiple-testing control)
 
 test:
 - test_sequence_features
