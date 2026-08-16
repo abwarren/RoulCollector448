@@ -808,6 +808,35 @@ data — monitor:
 - source conflicts
 - unverified records
 - failed reconciliation
+- collector gaps (capture gaps detected at the collector level — stream
+  silences, missing history frames — separate from canonical gaps)
+
+prediction — monitor:
+- prediction generation
+- prediction freeze
+- prediction persistence
+- next-result evaluation
+- no future-data leakage (the critical check — frozen predictions are
+  never touched by the outcome)
+- prediction scoring
+
+scheduled_jobs — monitor:
+- job registration
+- last execution
+- next execution
+- failed execution
+- job duration
+- lock conflicts
+
+### continuous_loop
+steps (repeated indefinitely until the clean-run criteria hold):
+- inspect_processes
+- inspect_application_health
+- inspect_http_4480
+- inspect_logs
+- inspect_database_health
+- inspect_data_integrity
+- inspect_scheduler
 
 ### regression (after every fix)
 - rerun_failed_test
