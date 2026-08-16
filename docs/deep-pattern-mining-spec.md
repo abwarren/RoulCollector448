@@ -600,6 +600,49 @@ agent_execution:
   - cycle engine operational
   - nested cycle engine operational
   - regime engine operational
+  - statistical validation operational
+  - Monte-Carlo operational
+  - prediction engine operational
+  - prediction UI visible
+  - prediction evaluation operational
+  - optimization agent operational
+  - research ledger operational
+  - scheduler operational
+  - CLI monitor operational
+  - tests passing
+  - application running
+  - application verified at http://localhost:4480/
+
+final_rule: do not declare completion merely because the code compiles,
+documentation is complete, or individual modules exist. Continue until
+the integrated system is running, tested, monitored, reconciled, and
+demonstrably operational at http://localhost:4480/. (P013 — no premature
+completion.)
+
+## Dashboard (required sections)
+
+### data_integrity — show:
+- integrity score
+- verified spins
+- unverified spins
+- missing
+- duplicates
+- conflicts
+- repairs
+- last reconciliation
+
+### discovery_engine — title: "WHAT HAS THE DATA DISCOVERED?"
+show:
+- current regime
+- active patterns
+- active cycles
+- nested cycles
+- neighbour structures
+- sequence structures
+- pattern confidence
+- historical matches
+
+### chronological_stream — title: "CHRONOLOGICAL SPIN DATA"
 
 test:
 - test_sequence_features
