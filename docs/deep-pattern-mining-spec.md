@@ -169,6 +169,9 @@ prediction_output:
 model_lifecycle: [fragment pending — continues on the next feed]
 - DISCOVERED (a candidate model structure proposed by the miner/model
   search — not yet trained, evaluated, or trusted; carries no claim)
+- TESTING (the candidate is being trained + evaluated on the discovery
+  split and validated on the validation split — walk-forward rules apply,
+  no future data, results recorded but not yet trusted)
 
 ### baseline (the simplest comparators — every specialist/ensemble claim
 must beat these, per P004)
