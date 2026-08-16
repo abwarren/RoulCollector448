@@ -512,6 +512,7 @@ every_canonical_spin_traceable_to:
   of the frozen prediction — the top outcome(s) the model expects next,
   drawn from the frozen probability_distribution, displayed with the
   versioned/timestamped provenance so it is always auditable)
+- evaluation: [continues on the next feed fragment]
 
 ## Self-critical adaptive learning
 
