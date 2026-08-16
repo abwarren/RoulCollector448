@@ -503,8 +503,98 @@ every_canonical_spin_traceable_to:
 
 objective: the system must continuously challenge its own assumptions,
 models, pattern definitions, cycle interpretations, regime classifications,
-and predictive [conclusions — fragment truncated; continues on the next
-feed]
+and predictive conclusions. No conclusion is permanent. New verified data
+must be capable of changing or invalidating previous conclusions.
+
+core_principle: evidence OUTRANKS assumptions. The system must never
+preserve an existing hypothesis merely because it was previously
+considered valid.
+
+### assumption_registry
+purpose: maintain an explicit registry of every assumption used anywhere
+in the discovery, cycle, regime, statistical, or prediction systems.
+
+fields:
+- assumption_id
+- assumption_description
+- created_at
+- created_from_evidence
+- supporting_dataset
+- sample_size
+- confidence
+- current_status
+- last_challenged
+- last_validated
+- contradictory_evidence
+- revision_history
+
+statuses: PROVISIONAL, SUPPORTED, WEAKENING, CONTRADICTED, REJECTED,
+REPLACED
+
+### assumption_challenge
+trigger: new_verified_data, regime_change, pattern_decay,
+prediction_failure, out_of_sample_failure, statistical_significance_loss,
+baseline_improvement, new_competing_hypothesis, data_source_change
+
+process: identify_assumptions_affected_by_new_data →
+recalculate_assumption_evidence → search_for_contradictory_evidence →
+compare_old_and_new_results → determine_if_assumption_still_holds →
+downgrade_or_reject_if_required → generate_replacement_hypothesis_if_supported
+→ retest_replacement → record_decision_in_research_ledger
+
+### no_permanent_truth
+rule: a pattern or model classified as VALIDATED must remain subject to
+future testing. VALIDATED means supported by the current evidence, not
+permanently proven.
+
+### change_policy
+new_data_can: strengthen_existing_hypothesis, weaken_existing_hypothesis,
+change_pattern_definition, change_regime_boundary,
+change_cycle_interpretation, change_model_weight, retire_model,
+reactivate_old_model, create_new_model, invalidate_previous_conclusion
+
+### model_challenge
+requirement: every active predictive model must continuously compete
+against simpler models, historical models, alternative hypotheses, and
+baseline models.
+actions: retest_active_models, compare_against_baselines,
+compare_against_previous_model_version, test_new_candidate_models,
+measure_out_of_sample_performance, retire_if_evidence_deteriorates
+
+### pattern_challenge
+requirement: every active pattern must periodically be challenged with
+newly accumulated data. The system must actively search for evidence that
+the pattern no longer exists.
+tests: current_frequency_vs_historical, current_effect_size_vs_historical,
+out_of_sample_performance, regime_specific_performance,
+random_baseline_comparison, alternative_pattern_explanation
+
+### regime_adaptation
+requirement: when the statistical structure of the data changes, the
+system must be able to abandon assumptions derived from the previous
+regime and rebuild its understanding from the new regime.
+behavior:
+- old_regime: preserve true, continue_learning false (preserved
+  historically, no longer learned from)
+- new_regime: detect true, create_new_regime true,
+  rebuild_pattern_distribution true, reevaluate_model_weights true,
+  reevaluate_active_hypotheses true
+
+### concept_drift
+objective: detect when relationships that were historically useful no
+longer describe the current data.
+detection: prediction_performance_decay, distribution_shift,
+transition_shift, entropy_shift, cycle_structure_shift,
+pattern_frequency_shift, regime_change
+response: flag_concept_drift, reduce_confidence, reduce_model_weight,
+retrain, search_for_new_patterns, compare_new_and_old_models
+
+### contradiction_engine
+objective: actively search for evidence that contradicts the system's
+STRONGEST current conclusions.
+requirements: maintain_top_active_hypotheses,
+generate_counter_hypotheses, search_for_counter_examples,
+test_counter_hypotheses
 
 ## Model learning
 
