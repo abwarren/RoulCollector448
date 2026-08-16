@@ -997,6 +997,30 @@ completion_definition — the application is NOT complete until:
 - repair workflow is operational
 - deep pattern mining is operational
 - cycle engine is operational
+- overlapping cycle detection is operational
+- nested cycle detection is operational
+- regime engine is operational
+- statistical validation is operational
+- Monte-Carlo/random baseline testing is operational
+- blind prediction engine is operational
+- prediction evaluation is operational
+- walk-forward evaluation is operational
+- model/version tracking is operational
+- self-critical assumption engine is operational
+- research ledger is operational
+- dashboard is operational
+- automated tests pass
+- integration tests pass
+- application starts successfully
+- application remains running
+- application is accessible over HTTP
+- application is accessible at http://localhost:4480/
+- critical workflows have been manually or programmatically verified
+
+## Development loop
+
+repeat_until_complete:
+- inspect_current_state [continues on the next feed]
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
