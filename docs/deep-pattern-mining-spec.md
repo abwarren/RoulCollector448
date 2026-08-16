@@ -691,7 +691,61 @@ show:
 - accepted improvements
 - rejected improvements
 
-### self_criticism: [fragment pending — continues on the next feed]
+### self_criticism — title: "SELF-CRITICAL RESEARCH"
+show:
+- strongest assumptions
+- assumptions under pressure
+- contradictory evidence
+- rejected hypotheses
+- new hypotheses
+- model changes
+- regime changes
+- concept drift
+
+## Testing matrix
+
+### unit
+- data integrity
+- missing spin
+- duplicate
+- timestamp
+- sequence order
+- pattern detection
+- cycle detection
+- nested cycle
+- regime detection
+- prediction freeze
+- prediction scoring
+- log loss
+- Brier
+- calibration
+
+### integration
+- collector to database
+- database to reconciliation
+- reconciliation to canonical dataset
+- canonical dataset to discovery
+- canonical dataset to prediction
+- prediction to evaluation
+- evaluation to optimization
+- scheduler to workers
+- frontend to APIs
+
+### chaos
+- websocket failure
+- DOM failure
+- network failure
+- browser restart
+- collector restart
+- duplicate message
+- delayed message
+- dropped message
+- corrupt message
+- database failure
+- scheduler failure
+
+### research
+- false pattern on random data [continues on the next feed fragment]
 
 test:
 - test_sequence_features
