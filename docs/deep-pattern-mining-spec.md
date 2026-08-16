@@ -883,9 +883,8 @@ The ledger records every adaptive event as an entry:
 
 decision_rule: when new verified data materially contradicts an existing
 assumption, the system must prefer changing the assumption over forcing
-the new data to fit [the assumption — fragment continues; expected
-completion along the lines of: "the old belief. The data is the ground
-truth; the assumption yields. Paste the exact tail if it differs]
+the new data to fit the old assumption. (The data is the ground truth;
+the assumption yields — P005's decision rule in one sentence.)
 
 ## Learning from failure
 
