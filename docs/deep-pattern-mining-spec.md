@@ -806,6 +806,7 @@ show:
 
 ### monitoring:
 - CLI monitor operational [continues on the next feed fragment]
+- scheduler operational
 
 test:
 - test_sequence_features
