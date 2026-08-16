@@ -815,6 +815,44 @@ show:
 - regression tests pass (the full suite passes after every fix cycle —
   the last gate before CLEAN)
 
+## Local deployment
+
+local_deployment:
+- required: true
+- url:
+  - exact: http://localhost:4480/
+- requirements:
+  - application starts
+  - application remains running
+  - frontend loads
+  - backend responds
+  - database connects
+  - workers run
+  - scheduler runs
+  - prediction is visible
+  - prediction evaluation works
+  - monitor sees healthy state
+- port:
+  - required: 4480
+  - rule: do NOT silently move the application to another port. If port
+    4480 is occupied, diagnose and safely resolve the conflict. (Never
+    declare completion on a non-4480 port.)
+- final_verification:
+  - HTTP GET localhost:4480
+  - verify expected response
+  - verify frontend rendering
+  - verify API health
+  - verify database
+  - verify scheduler
+  - verify prediction UI
+  - verify data integrity
+  - verify critical workflows
+  - run final regression
+  - run soak test
+- final_completion_rule:
+  - do_not_stop_until:
+    - application is fully implemented [continues on the next feed]
+
 test:
 - test_sequence_features
 - test_regime_features
