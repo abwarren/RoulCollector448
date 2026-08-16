@@ -508,7 +508,10 @@ every_canonical_spin_traceable_to:
   validated features that the prediction engine can use, but the
   prediction engine must consume them through a versioned, timestamped
   interface. Prediction-time data must be frozen and auditable.
-- prediction: [continues on the next feed fragment]
+- prediction: "WHAT THE MODEL PREDICTS NEXT" (the human-readable headline
+  of the frozen prediction — the top outcome(s) the model expects next,
+  drawn from the frozen probability_distribution, displayed with the
+  versioned/timestamped provenance so it is always auditable)
 
 ## Self-critical adaptive learning
 
