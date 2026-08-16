@@ -378,3 +378,27 @@ appropriate random baselines and whether those differences persist
 outside the discovery [window/sample — truncated in the feed; completes as:
 outside the discovery window/sample — i.e. out-of-sample persistence,
 P003/P004].
+
+baseline_types (the "appropriate random baselines" a discovered pattern is
+tested against — each is a distinct null):
+- simple_markov_transition (a first-order Markov null: transition
+  probabilities estimated from the data, then sequences simulated from it —
+  tests whether a pattern is more than ordinary chain structure)
+- appropriate_randomized_sequence (a permutation/randomization null: the
+  observed sequence's values reshuffled, preserving the value multiset but
+  destroying order — tests pure order effects)
+- monte_carlo_fair_wheel (a fair-wheel null: i.i.d. uniform over 0-36,
+  simulated at scale — tests against the ideal physical wheel)
+
+methods (the statistical machinery used to compare pattern vs baseline):
+- permutation_testing (exact/approximate permutation tests: shuffle the
+  labels/order N times, count how often the null produces an effect as
+  extreme as observed → empirical p-value)
+- monte_carlo_simulation (simulate each baseline type at scale, derive the
+  null distribution of the test statistic)
+- confidence_intervals (report effect sizes with CIs, not just point
+  estimates; a pattern whose CI straddles the null is not a claim)
+
+All comparisons must also respect P004: multiple-testing correction when
+many candidate patterns are scanned, reproducibility in a fresh sample,
+and beat the simpler baseline.
