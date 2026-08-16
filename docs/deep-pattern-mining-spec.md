@@ -834,7 +834,8 @@ chronological_sequence_audit:
 - reconstruct:
   - last_500_chronological_spins
   - last_1000_chronological_spins
-  - last_5000_chronological_spins [continues on the next feed fragment]
+  - last_5000_chronological_spins
+  - raw_source_order [continues on the next feed fragment]
 
 ## Dashboard (required sections)
 
