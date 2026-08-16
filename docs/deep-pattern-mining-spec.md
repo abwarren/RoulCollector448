@@ -305,6 +305,10 @@ record:
 - current_activation_period (the ongoing activation: when it started, how
   long it has run, and how the current episode compares to the previous
   one — same structure, different duration, stronger/weaker activation)
+- activation_strength (the measured intensity of the current activation —
+  e.g. how far the pattern's frequency deviates from its baseline during
+  the episode, or the pattern's current contribution to predictions;
+  recorded per episode so reactivations can be compared quantitatively)
 
 ## Model learning
 
