@@ -804,7 +804,8 @@ show:
 - model decay detected
 - self-critical assumption changes recorded
 
-### monitoring: [fragment pending — continues on the next feed]
+### monitoring:
+- CLI monitor operational [continues on the next feed fragment]
 
 test:
 - test_sequence_features
