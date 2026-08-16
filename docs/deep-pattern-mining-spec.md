@@ -167,7 +167,8 @@ ensemble:
 
 ### prediction_record
 - immutable: true
-- fields: [continues on the next feed fragment]
+- fields:
+  - prediction_id [continues on the next feed fragment]
 
 ## Prediction lock
 
