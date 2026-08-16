@@ -161,6 +161,47 @@ prediction_output:
   - probability_distribution
   - top_1
   - top_3
+  - top_5
+  - top_10
+
+## Prediction models
+
+### baseline (the simplest comparators — every specialist/ensemble claim
+must beat these, per P004)
+- uniform_37 (1/37 each)
+- historical_frequency (marginal frequency over all verified history)
+- recent_frequency (marginal frequency over the recent window)
+- simple_markov (first-order transition model)
+
+### specialist (each a distinct hypothesis about the sequence)
+- transition_model (from-current-number transition probabilities)
+- higher_order_transition_model (N-gram transitions)
+- neighbour_model (wheel-adjacency structure)
+- pair_chain_model (consecutive-pair chains)
+- sequence_model (sequential pattern hypotheses)
+- wheel_relative_model (wheel-relative sequence structure)
+- cycle_model (coverage-cycle position)
+- regime_model (current-regime-conditional distribution)
+- coverage_model (coverage state / missing-number structure)
+- deep_pattern_model (the pattern-miner's validated hypotheses)
+
+### ensemble
+objective: combine model probability distributions while allowing model
+weights to adapt according to VALIDATED WALK-FORWARD performance.
+
+requirements:
+- weights_must_be_learned_from_historical_performance
+- weights_must_not_use_future_results (walk-forward only — no lookahead,
+  P003)
+- weights_must_be_regularized (no overfit weight spikes)
+- no_single_component_should_dominate_without_validation (a component may
+  dominate only while its validated walk-forward edge justifies it)
+
+### model_attribution
+every prediction should record:
+- component_contribution (how much each component model shaped the final
+  distribution)
+- feature_contribution (how much each feature group contributed)
 
 ## Self-critical adaptive learning
 
