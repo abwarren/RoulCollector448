@@ -1599,9 +1599,11 @@ quality_gate:
 
 completion_rule: do not stop merely because the specification,
 documentation, schemas, or individual modules are complete. Continue until
-the integrated application [is complete, operational, tested, and
-accessible at http://localhost:4480/ — fragment truncated; continues on
-the next feed]
+the integrated application is complete, operational, tested, and
+accessible at http://localhost:4480/. The CLI monitor must continue until
+the system reaches CLEAN status. (The CLEAN state = the full clean-state
+matrix holds + the soak has held + all seven clean_requires conditions —
+see the soak_test section.)
 
 objective: take RoulCollector448 from its current state through
 implementation, integration, testing, debugging, validation, and local
