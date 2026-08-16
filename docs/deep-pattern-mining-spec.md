@@ -1074,6 +1074,9 @@ autonomous_debugging (the diagnostic toolkit used without asking):
 - make_reasonable_repairs (apply safe, reversible fixes autonomously —
   restart a service, correct a config, patch an obvious defect — and
   verify the fix; escalate only per the exception rule)
+- retest_after_repairs (every repair is followed by a re-test — re-run
+  the failing tests / health checks / endpoint probes — and the repair is
+  only considered successful when the re-test passes)
 
 ## Pattern identity rules
 
