@@ -401,6 +401,9 @@ tasks:
 - run_monte_carlo (the false-discovery calibration — run the candidate
   against simulated fair data and compare its apparent-signal rate
   against the null)
+- compare_challengers (head-to-head candidate comparison — each
+  challenger vs the champion and vs each other, on walk-forward OOS
+  metrics, feeding the promotion decision)
 
 ## Champion-challenger
 
