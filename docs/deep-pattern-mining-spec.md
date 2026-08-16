@@ -562,6 +562,10 @@ critical_test:
   row/column rasterization, client-side reordering. If the pattern is
   only visible because of how the UI arranges rows, it is a rendering
   artifact regardless of what the data contains)
+- "How many times does the structure occur?" (the fourth gate: count the
+  occurrences in the raw chronological sequence — a structure that
+  occurs once is not a pattern; the count feeds the recurrence-interval
+  and statistical-significance measures)
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
