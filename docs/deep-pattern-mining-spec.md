@@ -972,7 +972,7 @@ autonomy:
   development lifecycle.
 - do_not_ask_permission_for: creating files, modifying source code,
   refactoring code, installing required dependencies, creating database
-  tables or migrations
+  tables or migrations, adding tests
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
