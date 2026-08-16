@@ -917,8 +917,10 @@ display:
 - old_hypotheses_replaced
 
 ultimate_rule: the system must be designed to change its mind. New
-verified evidence must be [able to overturn any conclusion — fragment
-truncated; continues on the next feed]
+verified evidence must be able to alter pattern definitions, cycle
+interpretations, regime boundaries, [and every other conclusion — fragment
+continues; expected completion along the lines of: "and model conclusions
+— nothing is beyond revision. Paste the exact tail if it differs]
 
 ## Learning from failure
 
