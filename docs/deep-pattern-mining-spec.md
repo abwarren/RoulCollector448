@@ -566,6 +566,11 @@ critical_test:
   occurrences in the raw chronological sequence — a structure that
   occurs once is not a pattern; the count feeds the recurrence-interval
   and statistical-significance measures)
+- "What is the longest repeated sequence?" (the fifth gate: find the
+  longest exact sequence that recurs in the raw chronological data —
+  the maximal repeating structure, its length, and its occurrence count;
+  short repeats (length 2-3) are common by chance, so length + count
+  together decide whether the repetition is noteworthy)
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
