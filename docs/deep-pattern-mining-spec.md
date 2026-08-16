@@ -970,7 +970,8 @@ autonomy:
 - rule: do not stop and ask the user for permission between
   implementation steps. Continue autonomously through the entire
   development lifecycle.
-- do_not_ask_permission_for: creating files, modifying source code
+- do_not_ask_permission_for: creating files, modifying source code,
+  refactoring code
 
 workflow: identify_missing_requirements → implement_next_requirement →
 run_relevant_tests → inspect_failures → debug → fix → retest →
