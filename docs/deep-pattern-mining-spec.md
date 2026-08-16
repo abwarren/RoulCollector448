@@ -501,6 +501,34 @@ every_canonical_spin_traceable_to:
 
 ## Self-critical adaptive learning
 
+## Confidence decay
+
+rule: confidence in a pattern or model must naturally decline when new
+evidence fails to support it. (Confidence is earned continuously; it is
+not a stored entitlement. Absence of new supporting evidence is itself a
+negative signal.)
+
+factors (what drives the decay):
+- time_since_last_confirmation
+- new_sample_size
+- prediction_failure_rate
+- effect_size_decline
+- regime_change
+- baseline_performance
+- out_of_sample_failure
+
+## Evidence weighting
+
+priority (the evidence hierarchy — how much each kind of evidence counts
+when challenging or supporting a conclusion):
+- verified_recent_data (highest — the current verified window)
+- large_out_of_sample_dataset
+- large_historical_dataset
+- validated_simulation
+- small_sample_observation (weakest real evidence)
+- human_assumption (lowest — an assumption carries no evidentiary weight
+  on its own)
+
 objective: the system must continuously challenge its own assumptions,
 models, pattern definitions, cycle interpretations, regime classifications,
 and predictive conclusions. No conclusion is permanent. New verified data
