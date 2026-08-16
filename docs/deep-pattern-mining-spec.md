@@ -385,6 +385,9 @@ output: [continues in the next feed fragment]
 - active_patterns (the currently-active validated patterns that shaped
   this prediction — which patterns were in play, their activation
   strength, and how each contributed to the distribution)
+- active_cycle (the current coverage-cycle state that shaped this
+  prediction — cycle id/position, completion percentage, velocity, and
+  the cycle-based contribution to the distribution)
 
 ## Model learning
 
