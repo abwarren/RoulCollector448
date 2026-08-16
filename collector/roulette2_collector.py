@@ -92,7 +92,15 @@ RECONCILE_LIGHT_S = 30
 RECONCILE_FULL_S = 60
 RECONCILE_WINDOW = 500
 
-STALL_THRESHOLD_S = 120   # matches dashboard GAP_S; max legit cadence ~57s
+STALL_THRESHOLD_S = 120   # PROCESS/REALTIME health: max legit cadence ~57s
+                         # between spins; >120s means the capture stream is
+                         # not flowing in realtime (a stall) — triggers the
+                         # §30 recovery ladder. This is NOT a data-integrity
+                         # signal: data health has its own cadence (30/60s
+                         # reconcile, 5-min deep sweep) and its own signals
+                         # (gaps, reconciliation health, repair queue).
+                         # Process health (dead/hung/no-output) is the
+                         # watchdog's job, separate from both.
 RUNG_WAIT_S = 30          # wait for a new spin after rungs 0-2
 RELOAD_VERIFY_S = 90      # frames must resume within this after a reload
 RESTART_VERIFY_S = 90     # frames must resume within this after browser restart

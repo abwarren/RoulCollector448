@@ -233,6 +233,198 @@ def rolling_verify(conn, window: int = 500) -> dict:
     }
 
 
+def evaluate_alerts(conn) -> list:
+    """PRD §39 — alert conditions. Pure read of the DB; returns a list of
+    active alerts, newest first, each {severity, condition, detail, at}.
+
+    CRITICAL:
+      * two consecutive reconciliation failures
+      * unverified records > 0
+      * conflicting game IDs
+      * rolling 500 verification < 100%
+    WARNING:
+      * capture latency increasing (P99 rising across recent passes)
+      * DOM/WS disagreement
+      * repeated recovery events
+      * repair frequency increasing
+    """
+    import json as _json
+    alerts = []
+
+    def add(severity, condition, detail, at=None):
+        alerts.append({"severity": severity, "condition": condition,
+                       "detail": detail, "at": at})
+
+    # --- rolling-500 verification (the §26/§27 trust indicator) ---
+    r5 = rolling_verify(conn)
+    if r5["checked"]:
+        if r5["verified"] < r5["checked"]:
+            add("CRITICAL", "rolling_500_verification_lt_100",
+                f"{r5['verified_label']} verified")
+        if r5["unverified"] > 0:
+            add("CRITICAL", "unverified_records",
+                f"{r5['unverified']} unverified record(s) in the latest {r5['window']}")
+        if r5["conflicts"] > 0:
+            add("CRITICAL", "conflicting_game_ids",
+                f"{r5['conflicts']} conflicting game ID(s)")
+        if r5["duplicates"] > 0:
+            add("CRITICAL", "duplicate_game_ids",
+                f"{r5['duplicates']} duplicate game ID(s)")
+
+    # --- two consecutive reconciliation failures ---
+    try:
+        rows = conn.execute(
+            "SELECT created_at, details FROM integrity_events "
+            "WHERE event_type IN ('RECONCILIATION','RECONCILIATION_LIGHT') "
+            "ORDER BY id DESC LIMIT 2"
+        ).fetchall()
+        if len(rows) >= 2:
+            oks = []
+            for r in rows:
+                d = _json.loads(r["details"]) if r["details"] else {}
+                oks.append(bool(d.get("ok")))
+            if not any(oks):
+                add("CRITICAL", "two_consecutive_reconciliation_failures",
+                    "last two reconciliation passes failed",
+                    at=rows[0]["created_at"])
+            elif not oks[0]:
+                add("WARNING", "reconciliation_failure",
+                    "latest reconciliation pass failed",
+                    at=rows[0]["created_at"])
+    except Exception:
+        pass
+
+    # --- DOM/WS disagreement (SOURCE_DISAGREEMENT events) ---
+    try:
+        n_dis = conn.execute(
+            "SELECT COUNT(*) FROM integrity_events "
+            "WHERE event_type='SOURCE_DISAGREEMENT' "
+            "AND created_at > datetime('now', '-1 hour')"
+        ).fetchone()[0]
+        if n_dis:
+            add("WARNING", "dom_ws_disagreement",
+                f"{n_dis} DOM/WS disagreement(s) in the last hour")
+    except Exception:
+        pass
+
+    # --- repeated recovery events (recovery rungs / RECOVERING states) ---
+    try:
+        n_rec = conn.execute(
+            "SELECT COUNT(*) FROM integrity_events "
+            "WHERE event_type IN ('RECOVERY','RECOVERY_START','STALL') "
+            "OR (details LIKE '%recovery%' AND details LIKE '%rung%') "
+            "AND created_at > datetime('now', '-1 hour')"
+        ).fetchone()[0]
+        if n_rec >= 3:
+            add("WARNING", "repeated_recovery_events",
+                f"{n_rec} recovery events in the last hour")
+    except Exception:
+        pass
+
+    # --- capture latency increasing (P99 rising; heartbeat latency) ---
+    try:
+        import os as _os
+        import pathlib as _pl
+        hb_path = _os.environ.get(
+            "RC_HEARTBEAT_FILE",
+            _pl.Path(_os.path.expanduser("~")) / ".roulette2" /
+            "roulette2_heartbeat.json")
+        with open(hb_path, encoding="utf-8") as f:
+            hb = _json.load(f)
+        lat = (hb.get("latency") or {})
+        p99 = lat.get("capture_p99") or lat.get("p99")
+        p50 = lat.get("capture_p50") or lat.get("p50")
+        if p99 is not None and p50 is not None and p99 > 10.0:
+            add("WARNING", "capture_latency_increasing",
+                f"capture P99 {p99:.1f}s vs P50 {p50:.1f}s — rising")
+    except Exception:
+        pass
+
+    # --- repair frequency increasing (repairs in the last hour vs the hour before) ---
+    try:
+        cur_h = conn.execute(
+            "SELECT COUNT(*) FROM repair_events "
+            "WHERE created_at > datetime('now', '-1 hour')"
+        ).fetchone()[0]
+        prev_h = conn.execute(
+            "SELECT COUNT(*) FROM repair_events "
+            "WHERE created_at <= datetime('now', '-1 hour') "
+            "AND created_at > datetime('now', '-2 hours')"
+        ).fetchone()[0]
+        if cur_h > 0 and cur_h > prev_h * 2 and prev_h > 0:
+            add("WARNING", "repair_frequency_increasing",
+                f"{cur_h} repairs this hour vs {prev_h} the hour before")
+    except Exception:
+        pass
+
+    # newest first (most recent alert first), stable order otherwise
+    alerts.sort(key=lambda a: (a.get("at") or ""), reverse=True)
+    return alerts
+
+
+@app.get("/api/integrity/window")
+def integrity_window():
+    """PRD §38 — the rolling-500 verification window breakdown."""
+    conn = db.connect()
+    try:
+        return {"ok": True, **rolling_verify(conn)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/integrity/repairs")
+def integrity_repairs(limit: int = Query(20, ge=1, le=100)):
+    """PRD §38 — repair history from the repair queue (repair_events)."""
+    conn = db.connect()
+    try:
+        import json as _json
+        rows = conn.execute(
+            "SELECT id, created_at, incident_type, start_game_id, end_game_id, "
+            "affected_count, status, attempts, last_attempt_at, resolved_at, "
+            "resolution, details FROM repair_events ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            det = r["details"]
+            if isinstance(det, str):
+                try:
+                    det = _json.loads(det)
+                except Exception:
+                    det = {"note": det}
+            out.append({
+                "id": r["id"], "created_at": r["created_at"],
+                "incident_type": r["incident_type"],
+                "start_game_id": r["start_game_id"],
+                "end_game_id": r["end_game_id"],
+                "affected_count": r["affected_count"],
+                "status": r["status"], "attempts": r["attempts"],
+                "last_attempt_at": r["last_attempt_at"],
+                "resolved_at": r["resolved_at"],
+                "resolution": r["resolution"], "details": det,
+            })
+        return {"ok": True, "repairs": out}
+    finally:
+        conn.close()
+
+
+@app.get("/api/integrity/incidents")
+def integrity_incidents(limit: int = Query(20, ge=1, le=100)):
+    """PRD §38 — incidents under the integrity namespace (alias of
+    /api/incidents, the §37 incident feed)."""
+    return incidents(limit)
+
+
+@app.get("/api/integrity/alerts")
+def integrity_alerts():
+    """PRD §39 — active alert conditions (critical + warning)."""
+    conn = db.connect()
+    try:
+        return {"ok": True, "alerts": evaluate_alerts(conn)}
+    finally:
+        conn.close()
+
+
 @app.get("/api/integrity")
 def integrity():
     """Data-integrity panel payload (PRD §36): latest reconciliation state,
@@ -287,12 +479,26 @@ def integrity():
         ) or (total > 0)
 
         score = (last_recon or {}).get("score")
+        r5 = rolling_verify(conn)
+        # PRD §38 flat metrics shape (the documented contract) alongside the
+        # richer panel fields.
         return {
             "ok": True,
             "window": AUDIT_WINDOW,
             "verified_count": verified,
             "total_spins": total,
             "verified_window": f"{verified} / {total} verified",
+            # §38 flat shape — the machine contract
+            "score": score,
+            "verified": r5["verified"],
+            "missing": r5["missing"],
+            "duplicates": r5["duplicates"],
+            "conflicts": r5["conflicts"],
+            "unverified": r5["unverified"],
+            "repaired": r5["repaired"],
+            "last_reconciliation": (last_recon or {}).get("at"),
+            "status": "VERIFIED" if (last_recon or {}).get("ok") else (
+                "UNVERIFIED" if last_recon else "NO_DATA"),
             "latest_spin": {
                 "number": None,
                 "color": None,
@@ -302,7 +508,8 @@ def integrity():
             "open_incidents": open_incidents,
             "health_score": score,
             "collector_state": (last_recon or {}).get("state"),
-            "rolling500": rolling_verify(conn),
+            "rolling500": r5,
+            "alerts": evaluate_alerts(conn),
             # §26-new: gap lifecycle — the dashboard distinguishes a
             # REPAIRED gap (RESOLVED/REPAIRED) from an UNVERIFIED one
             # (UNVERIFIED = permanent). Latest GAP events, newest first.
