@@ -597,6 +597,7 @@ agent_execution:
   - 500-spin reconciliation operational
   - repair system operational
   - pattern mining operational
+  - cycle engine operational
 
 test:
 - test_sequence_features
