@@ -171,6 +171,8 @@ ensemble:
   - prediction_id [continues on the next feed fragment]
   - timestamp (the freeze moment — when the prediction was generated,
     persisted, and locked)
+  - model_version (the exact immutable version that produced the
+    prediction — traceable via the model registry)
 
 ## Prediction lock
 
