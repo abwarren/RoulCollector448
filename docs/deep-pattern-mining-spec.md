@@ -540,6 +540,7 @@ prediction:
 
 scheduler:
 - jobs registered [continues on the next feed fragment]
+- jobs execute (a job actually runs on schedule and completes)
 
 test:
 - test_sequence_features
