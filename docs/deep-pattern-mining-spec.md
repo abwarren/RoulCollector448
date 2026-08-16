@@ -254,6 +254,10 @@ statistical:
 - future_spin_in_weight_selection (learning ensemble weights from
   results that include outcomes after the prediction point — the
   ensemble's walk-forward weight learning is historical-only)
+- future_spin_in_hyperparameter_selection (tuning hyperparameters using
+  outcomes after the prediction point — the walk-forward rule covers
+  the full model-building path: features, selection, weights, and
+  hyperparameters)
 
 ## Prediction lock
 
