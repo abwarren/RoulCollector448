@@ -501,6 +501,11 @@ every_canonical_spin_traceable_to:
 
 ## Discovery-prediction boundary
 
+framing (the three-question distinction that defines the system's shape):
+- Discovery: What has the data discovered?
+- Prediction: What does the independent model predict next?
+- Evaluation: Was the prediction actually any good?
+
 - rule: predictions, once generated, are immutable. New data may change
   future predictions, but must NEVER rewrite previous predictions (the
   frozen pre-spin record is the only admissible prediction — P003).
