@@ -499,7 +499,55 @@ every_canonical_spin_traceable_to:
 - out_of_order_spin
 - source_disagreement
 
-## Loop / recurrence detector
+## UI visual-structure vs chronological-truth audit
+
+priority: "HIGH"
+objective: determine whether the apparent repeating numerical structures
+visible in the RoulCollector448 UI represent GENUINE chronological
+roulette results or are artifacts of dataset ordering, sorting,
+pagination, rendering, or grid layout.
+
+mandatory_rule: do NOT infer temporal patterns from the visual grid.
+Inspect the canonical chronological database records directly.
+
+investigation (the direct-DB checks):
+- query raw observations directly
+- query canonical spins directly
+- inspect sequence_number ordering
+- inspect timestamps
+- inspect game_id
+- inspect source ordering
+- inspect frontend sorting
+- inspect pagination
+- inspect row construction
+- inspect column construction
+- inspect any client-side sorting
+- inspect API response ordering
+- compare displayed order against database order
+
+reconstruct — required outputs:
+- last_500_chronological_spins
+- last_1000_chronological_spins
+- last_5000_chronological_spins
+- raw_source_order
+- canonical_database_order
+- frontend_display_order
+
+sequence_analysis — calculate:
+- A_to_B_transition_matrix
+- exact_repeating_sequences
+- repeating_blocks
+- sequence_recurrence
+- wheel_relative_sequences
+- sequential_number_runs
+- reverse_sequential_runs
+- sequence_length
+- recurrence_interval
+
+critical_test:
+- condition: if the chronological canonical sequence contains repeated
+  structures such as [continues on the next feed fragment]
+- "Is the apparent loop real?"
 
 - objective: determine whether an apparent loop exists in:
   - overlapping_repeating_block (the same block overlapping across the
