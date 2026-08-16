@@ -556,6 +556,95 @@ flagged as a pattern WORTH INVESTIGATING — never called a "roulette loop"
 until the raw chronological sequence is extracted and the candidate
 passes the validation contract above.
 
+### Scheduled reconciliation (background jobs)
+
+objective: run an INDEPENDENT scheduled reconciliation and health-check
+process so that missing, duplicated, delayed, or corrupted roulette data
+is detected and corrected even when the web application is not actively
+being viewed. The scheduled background jobs operate INDEPENDENTLY of the
+dashboard (and of the collector) — the jobs are the always-on integrity
+watchdog; the web app is a window onto their results.
+
+scheduler:
+- required: true
+- type: "cron"
+
+jobs:
+
+### recent_data_reconciliation — */1 * * * * (every minute)
+purpose:
+- inspect latest 500 spins
+- detect missing observations
+- detect duplicates
+- detect ordering anomalies
+- detect timestamp anomalies
+- compare against available authoritative history
+- repair deterministic discrepancies
+- mark unresolved discrepancies
+- update data integrity status
+
+### deep_reconciliation — */5 * * * * (every 5 minutes)
+purpose:
+- perform complete latest-500 audit
+- verify canonical sequence
+- verify source agreement
+- verify collector health
+- verify database consistency
+- verify no gaps have been introduced
+
+### pattern_refresh — */15 * * * * (every 15 minutes)
+purpose:
+- process newly verified spins
+- update pattern discovery
+- update cycle detection
+- update nested-cycle detection
+
+### reporting (job output)
+- data_repairs_completed
+- unresolved_data_issues
+
+### startup
+required: true
+rule: the local deployment process must install/register the required
+cron jobs automatically where the operating environment supports cron.
+
+### local_deployment
+application_url: http://localhost:4480/
+requirement: the application AND scheduled workers must be operational
+after local deployment. The agent must verify that the cron scheduler is
+installed, the jobs are registered, and at least one scheduled execution
+completes successfully BEFORE declaring the application complete.
+
+### windows_support
+required: true
+rule: because the development environment may be Windows, the
+implementation must provide an equivalent Windows Task Scheduler
+configuration when native cron is unavailable. The logical schedules and
+job behavior must remain identical.
+
+### verification
+agent_must:
+- install scheduler
+- register jobs
+- verify schedules
+- execute each job manually once
+
+scale_note: at 10,000 spins the [scheduled jobs / reconciliation windows
+continue to operate identically — fragment truncated; continues on the
+next feed]
+
+## Sequence loop detection
+
+objective: detect exact and structural repetition in the CHRONOLOGICAL
+VERIFIED dataset, including repeating sequences, blocks, cycles, nested
+cycles, and recurring subsequences. NEVER assume a visual loop represents
+a chronological loop.
+
+detect:
+- exact_repeating_sequence
+- repeating_block
+- [continues on the next feed fragment]
+
 ### Sequence geometry / display-order anomaly detector
 
 objective: determine whether an apparent loop exists in — and attribute
