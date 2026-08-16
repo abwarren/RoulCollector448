@@ -807,6 +807,8 @@ show:
 ### monitoring:
 - CLI monitor operational [continues on the next feed fragment]
 - scheduler operational
+- soak test completed (a full soak cycle finished with the clean-state
+  matrix holding throughout)
 
 test:
 - test_sequence_features
