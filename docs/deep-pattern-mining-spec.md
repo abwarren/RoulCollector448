@@ -797,11 +797,17 @@ processes — monitor:
 - scheduler
 
 data — monitor:
-- verify source agreement [continues on the next feed fragment]
+- verify source agreement
 - verify collector health
 - verify database consistency
-- verify no gaps have been introduced [continues on the next feed
-  fragment]
+- verify no gaps have been introduced
+- missing spins
+- duplicate spins
+- out-of-order spins
+- timestamp anomalies
+- source conflicts
+- unverified records
+- failed reconciliation
 
 ### regression (after every fix)
 - rerun_failed_test
