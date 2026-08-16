@@ -512,7 +512,11 @@ every_canonical_spin_traceable_to:
   of the frozen prediction — the top outcome(s) the model expects next,
   drawn from the frozen probability_distribution, displayed with the
   versioned/timestamped provenance so it is always auditable)
-- evaluation: [continues on the next feed fragment]
+- evaluation: "HOW THE PREDICTION PERFORMED" (the post-outcome scoring
+  headline — filled in after the spin lands: did the frozen prediction
+  hit (top-1/3/5/10), what were the log loss / Brier / calibration
+  contributions, and how does this compare to the baselines; always
+  scored against the SAME frozen pre-spin prediction, never a revised one)
 
 ## Self-critical adaptive learning
 
