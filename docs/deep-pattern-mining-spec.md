@@ -788,6 +788,8 @@ integrity_status:
   - DEGRADED [continues on the next feed fragment]
   - WARNING
   - CRITICAL
+  - UNVERIFIED (a row that could not be verified or repaired — the
+    refused-repair terminal state, per the §25 gates)
 
 ## Dashboard (required sections)
 
