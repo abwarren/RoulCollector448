@@ -376,6 +376,9 @@ output: [continues in the next feed fragment]
 - top_predicted_numbers (the top-N numbers from the probability
   distribution with their probabilities — the headline of any
   explanation: what the model actually predicted)
+- probability_distribution (the full 37-way distribution the explanation
+  refers to — the complete set of probabilities the top-N is drawn from,
+  so the explanation can be checked against the actual prediction)
 
 ## Model learning
 
