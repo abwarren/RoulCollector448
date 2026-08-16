@@ -3204,6 +3204,12 @@ rejection_conditions: [continues in the next feed fragment]
   effect size is not material, or the CI straddles the null — the primary
   rejection condition; a failed validation sends the hypothesis to
   REJECTED with the full test record preserved)
+- multiple_testing_failure (the finding does not survive FDR/BH
+  correction across the scanned candidate family — significance was an
+  artifact of search, not evidence)
+- not_reproducible (the finding cannot be reproduced — failed re-run on
+  the same data, or the effect does not reappear under re-analysis;
+  per P004, reproducibility is a non-negotiable property of any claim)
 - fails_out_of_sample (the hypothesis passed validation but fails on the
   held-out/out-of-sample data: the effect does not reproduce, the
   out-of-sample effect size is materially smaller or not significant, or
