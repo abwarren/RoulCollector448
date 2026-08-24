@@ -90,8 +90,17 @@ try:                                     # repo layout (package context)
     from . import (observer, schema, reconciler, history, validator,
                    repairer, integrity_state)
 except ImportError:                      # deployed flat script on the box
-    import observer, schema, reconciler, history, validator, repairer  # type: ignore
-    import integrity_state  # type: ignore
+    # Import as collector.<mod> — NOT as bare top-level modules. The
+    # integrity submodules import each other via `from collector.reconciler
+    # import ...` (absolute, package-qualified); importing reconciler as a
+    # top-level name here would load a SECOND module instance with its own
+    # HistoryRecord class, and isinstance() checks in normalize_record
+    # would fail across the two copies ('no attribute get' / 'cannot
+    # normalize' crashes). PYTHONPATH=/opt/deploy/repos/RoulCollector448
+    # puts the repo on sys.path, so `collector.reconciler` resolves to the
+    # same file the absolute imports use.
+    from collector import (observer, schema, reconciler, history, validator,
+                           repairer, integrity_state)
 
 # Reconcile cadence (PRD §31, §13): per-spin validation is instant; the
 # rolling-window reconciliation (load local 500, obtain authoritative 500,
@@ -632,48 +641,41 @@ def make_on_ws_frame(state):
                         # numbers collide on lobby-<key>-<number>, which
                         # breaks reconcile matching — so append a per-table
                         # counter (lobby-<key>-<n>-<cnt>).
+                        new_tail = []
+                        gid_map = {}
                         try:
                             tail = history.parse_lobby_tail(data, LOBBY_TABLE)
                             if tail:
-                                # Dedupe by physical identity: (number,
-                                # server_ts). The lobby tail re-lists the
-                                # last ~10 spins every frame — the previous
-                                # number-based prev_newest check only caught
-                                # the newest, so the same spin was re-observed
-                                # with a fresh counter on later frames, and
-                                # backfill then inserted it as a duplicate
-                                # canonical row (the 19:10:04 ×6 corruption).
-                                # With server_ts now flowing from the frame,
-                                # (number, server_ts) is stable per physical
-                                # spin; re-observations reuse the existing gid.
-                                # When the frame carries NO timestamps, fall
-                                # back to the advancement window (prev_newest
-                                # cutoff) so same-number spins aren't merged.
-                                seen = s.setdefault("lobby_phys_seen", {})
-                                has_ts = any(rec.server_ts for rec in tail)
-                                if has_ts:
-                                    new_tail = []
-                                    for rec in tail:
-                                        key = (rec.number, rec.server_ts)
-                                        if key in seen:
-                                            continue
-                                        seen[key] = True
-                                        new_tail.append(rec)
-                                else:
-                                    prev_newest = s.setdefault("lobby_newest", {}).get(LOBBY_TABLE)
-                                    if prev_newest is not None:
-                                        idx = None
-                                        for i, rec in enumerate(tail):
-                                            if rec.number == prev_newest:
-                                                idx = i
-                                                break
-                                        new_tail = tail[:idx] if idx is not None else []
-                                    else:
-                                        new_tail = tail
+                                # NEW-SPIN detection. The lobby frame has no
+                                # timestamps, so identity is the tail
+                                # position slide: when K new spins land, the
+                                # old tail slides down K slots. A current
+                                # spin at pos i is a RE-OBSERVATION of a
+                                # spin already stored if it matches the
+                                # previous tail at pos i or i-1 (the 1-slot
+                                # slide). Everything else is a genuinely new
+                                # spin. Each new spin gets ONE stable gid
+                                # (monotonic counter); re-observations are
+                                # dropped so backfill can never duplicate.
+                                # (A 2+ spin burst can under-capture; the
+                                # reconciler backfills those — duplication
+                                # is worse than a rare recoverable gap.)
+                                prev_tail = s.setdefault("lobby_prev_tail", {})
+                                new_tail = []
+                                for i, rec in enumerate(tail):
+                                    if prev_tail.get(i) == rec.number:
+                                        continue  # same slot, same spin
+                                    if i > 0 and prev_tail.get(i - 1) == rec.number:
+                                        continue  # slid down one slot
+                                    new_tail.append(rec)
+                                s["lobby_prev_tail"] = {i: rec.number
+                                                        for i, rec in enumerate(tail)}
                                 cnt = s.setdefault("lobby_seq", {}).get(LOBBY_TABLE, 0)
+                                gid_map = {}
                                 for rec in new_tail:
                                     cnt += 1
                                     gid = f"{rec.game_id}-{cnt}"
+                                    gid_map[id(rec)] = gid
                                     s["history_obs"].append({
                                         "source": "history",
                                         "session_id": s["session_id"],
@@ -694,32 +696,21 @@ def make_on_ws_frame(state):
                                     flush_history_obs(s)
                         except Exception:
                             pass
-                        seen = s.setdefault("lobby_seen", {})
-                        # canonical spins use the SAME unique game_id format
-                        # as the tail observations (lobby-<key>-<n>-<cnt>) so
-                        # the reconciler matches both sides at level 1
-                        # (game_id) and gains repair authority.
-                        for rec in lobby_recs:
-                            gid = rec.game_id or ""
-                            # gid = lobby-<table_key>-<number>
-                            parts = gid.split("-")
-                            table_key = parts[1] if len(parts) > 1 else gid
+                        # canonical spins: consume the NEW-spin gids assigned
+                        # by the obs store above (single source of identity,
+                        # lobby-<key>-<n>-<cnt>). Each new physical spin gets
+                        # appended once with its stable gid; re-observations
+                        # were already filtered into new_tail.
+                        for rec in new_tail:
+                            parts = (rec.game_id or "").split("-")
+                            table_key = parts[1] if len(parts) > 1 else rec.game_id
                             if LOBBY_TABLE and table_key != LOBBY_TABLE:
                                 continue
-                            if seen.get(table_key) == gid:
-                                continue
-                            seen[table_key] = gid
-                            # Reuse the EXACT gid from the tail observation
-                            # (written above, lobby-<key>-<n>-<cnt>) so both
-                            # sides carry the same identity. Fall back to a
-                            # fresh counter if the tail wasn't written.
-                            uniq_gid = (s.setdefault("lobby_newest_gid", {})
-                                        .get(table_key))
+                            uniq_gid = gid_map.get(id(rec))
                             if not uniq_gid:
-                                cnt = s.setdefault("lobby_seq", {}).get(table_key, 0) + 1
-                                s.setdefault("lobby_seq", {})[table_key] = cnt
-                                uniq_gid = f"{gid}-{cnt}"
-                            s.setdefault("lobby_newest_gid", {})[table_key] = uniq_gid
+                                # obs path didn't assign (shouldn't happen —
+                                # same loop) — defensive fallback
+                                continue
                             desc_full = f"{rec.number} {num_to_color(rec.number)} [lobby {table_key}]"
                             s["spins"].append({
                                 "number": rec.number,
