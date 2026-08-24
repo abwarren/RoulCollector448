@@ -110,15 +110,31 @@ def audit_db(db_path, limit=500):
     finally:
         c.close()
 
+def read_heartbeat(hb_path):
+    """Read the collector's heartbeat for its captured count (WS + saved)."""
+    try:
+        with open(hb_path) as f:
+            hb = json.load(f)
+        return hb
+    except Exception:
+        return None
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=DB_DEFAULT)
     ap.add_argument("--limit", type=int, default=500)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--heartbeat", default="/home/gdi/roulette2/roulette2_heartbeat.json")
     args = ap.parse_args()
     live, live_err = await fetch_live_history(args.limit)
     db = audit_db(args.db, args.limit)
-    result = {"live": live, "live_err": live_err, "db": db,
+    hb = read_heartbeat(args.heartbeat)
+    # Accuracy reference: the collector's captured count (ws_captured).
+    # DB vs live newest will differ on normal save-lag (batch of 25);
+    # a real problem is DB spins << collector captured count.
+    hb_captured = (hb or {}).get("ws_captured") or (hb or {}).get("spins_captured")
+    hb_total = (hb or {}).get("total_spins") or (hb or {}).get("spins")
+    result = {"live": live, "live_err": live_err, "db": db, "hb": hb,
               "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")}
     if args.json:
         print(json.dumps(result, indent=2, default=str))
@@ -126,22 +142,24 @@ async def main():
         d = db
         live_newest = live[-1] if live else None
         live_n = len(live) if live else 0
-        # missing check: DB newest should equal live newest (save-lag tolerant)
-        missing = None
-        if live and d.get("ok"):
-            if d.get("newest") != live_newest:
-                missing = f"DB newest {d.get('newest')} != live {live_newest}"
         print(f"[{result['timestamp']}] Audit Table 448 (Auto-Roulette R2)")
         print(f"  DB spins: {d.get('spins')} (last {d.get('window')} in window)")
         print(f"  DB newest: {d.get('newest')} @ {d.get('newest_ts')}")
         print(f"  Order OK: {d.get('order_ok')}")
         print(f"  Live 448 seen: {live_n} spins, newest {live_newest} ({live_err or 'ok'})")
+        print(f"  Collector captured: {hb_captured} (hb total: {hb_total})")
         if not d.get("ok"):
             print(f"  STATUS: {d.get('msg')}")
-        elif missing:
-            print(f"  STATUS: MISMATCH — {missing}")
         elif not d.get("order_ok"):
             print("  STATUS: ORDER VIOLATION")
+        elif hb is None:
+            print("  STATUS: HEARTBEAT MISSING — collector not writing (down?)")
+        elif (hb.get("status") or "").upper() != "RUNNING":
+            print(f"  STATUS: COLLECTOR NOT RUNNING (hb status: {hb.get('status')})")
+        elif hb_captured is not None and d.get("spins") < hb_captured:
+            print(f"  STATUS: SAVE-LAG — DB {d.get('spins')} vs collector {hb_captured} (batch not flushed yet)")
+        elif live_newest is not None and d.get("newest") != live_newest:
+            print(f"  STATUS: SAVE-LAG (expected) — DB {d.get('newest')} vs live {live_newest}")
         else:
             print("  STATUS: OK")
 
