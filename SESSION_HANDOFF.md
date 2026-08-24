@@ -40,3 +40,26 @@ Collect Table 448 (Auto-Roulette R2) spins 24/7 with 100% accuracy; serve via da
 ## NEXT SLICE
 - Restart collector (user approval) → read traceback → fix reconcile_task HistoryRecord bug → verify /api/integrity shows ok=true, score 100, rolling500 perfect
 - Service 3 (analysis layer) per integrity-first plan
+
+## RESOLVED 2026-08-25 — reconcile crash + duplicate backfill corruption
+
+**Symptoms**: /api/integrity score stuck 65 DEGRADED; every reconcile pass
+failed `'HistoryRecord' object has no attribute 'get'`; grid tail showed the
+same spin block ~3x (19:10:04 x6 in DB, 132 dup rows deleted).
+
+**Root causes** (2 independent):
+1. Import mismatch: collector ran as a flat script; fallback `import
+   reconciler` loaded a SECOND module instance, so `HistoryRecord` from
+   history.py's `from collector.reconciler import` was a different class
+   than the collector's — isinstance() in normalize_record failed. Fixed:
+   fallback now `from collector import (...)`. (commit fae1176)
+2. Obs re-observation: the lobby tail re-lists the last ~10 spins every
+   frame; prev_newest dedupe only caught the newest, so the same spin was
+   re-observed with a fresh counter gid, and backfill_gaps inserted each
+   under a different gid. Fixed: tail-slide dedupe (pos i or i-1 match =
+   re-observation) gives each physical spin ONE stable counter gid; obs
+   store is the single source of identity, canonical loop consumes it.
+   (commits b53e982 + fae1176)
+
+**Verified**: 588/588 verified, 0 dups, 0 missing, 0 conflicts; capture
+cadence ~40s/spin; obs counters strictly sequential; 0 crashes.
