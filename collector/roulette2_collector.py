@@ -628,23 +628,59 @@ def make_on_ws_frame(state):
                         # reconciler needs to backfill gaps). The lobby
                         # frame carries ~10 recent spins — the backlog
                         # window that closes gaps after a stall.
+                        # game_id is UNIQUE per spin instance: repeated
+                        # numbers collide on lobby-<key>-<number>, which
+                        # breaks reconcile matching — so append a per-table
+                        # counter (lobby-<key>-<n>-<cnt>).
                         try:
                             tail = history.parse_lobby_tail(data, LOBBY_TABLE)
                             if tail:
-                                for rec in tail:
+                                # dedup by advancement: only store entries
+                                # NEWER than the previous newest (the tail's
+                                # positions shift every spin, so position-
+                                # based dedup re-stores repeats). Compare
+                                # against the last-stored newest number.
+                                prev_newest = s.setdefault("lobby_newest", {}).get(LOBBY_TABLE)
+                                if prev_newest is not None:
+                                    # find where the previous newest sits;
+                                    # everything before it is new
+                                    idx = None
+                                    for i, rec in enumerate(tail):
+                                        if rec.number == prev_newest:
+                                            idx = i
+                                            break
+                                    new_tail = tail[:idx] if idx is not None else []
+                                else:
+                                    new_tail = tail
+                                cnt = s.setdefault("lobby_seq", {}).get(LOBBY_TABLE, 0)
+                                for rec in new_tail:
+                                    cnt += 1
+                                    gid = f"{rec.game_id}-{cnt}"
                                     s["history_obs"].append({
                                         "source": "history",
                                         "session_id": s["session_id"],
-                                        "game_id": rec.game_id,
+                                        "game_id": gid,
                                         "number": rec.number,
                                         "server_ts": rec.server_ts,
                                         "raw_payload": payload[:500],
                                         "sequence_hint": rec.order_hint,
                                     })
-                                flush_history_obs(s)
+                                if new_tail:
+                                    s.setdefault("lobby_seq", {})[LOBBY_TABLE] = cnt
+                                    s.setdefault("lobby_newest", {})[LOBBY_TABLE] = new_tail[0].number
+                                    # newest observation's unique gid: the
+                                    # FIRST new entry got cnt = start+1
+                                    first_cnt = (cnt - len(new_tail) + 1)
+                                    s.setdefault("lobby_newest_gid", {})[LOBBY_TABLE] = \
+                                        f"{new_tail[0].game_id}-{first_cnt}"
+                                    flush_history_obs(s)
                         except Exception:
                             pass
                         seen = s.setdefault("lobby_seen", {})
+                        # canonical spins use the SAME unique game_id format
+                        # as the tail observations (lobby-<key>-<n>-<cnt>) so
+                        # the reconciler matches both sides at level 1
+                        # (game_id) and gains repair authority.
                         for rec in lobby_recs:
                             gid = rec.game_id or ""
                             # gid = lobby-<table_key>-<number>
@@ -655,11 +691,22 @@ def make_on_ws_frame(state):
                             if seen.get(table_key) == gid:
                                 continue
                             seen[table_key] = gid
+                            # Reuse the EXACT gid from the tail observation
+                            # (written above, lobby-<key>-<n>-<cnt>) so both
+                            # sides carry the same identity. Fall back to a
+                            # fresh counter if the tail wasn't written.
+                            uniq_gid = (s.setdefault("lobby_newest_gid", {})
+                                        .get(table_key))
+                            if not uniq_gid:
+                                cnt = s.setdefault("lobby_seq", {}).get(table_key, 0) + 1
+                                s.setdefault("lobby_seq", {})[table_key] = cnt
+                                uniq_gid = f"{gid}-{cnt}"
+                            s.setdefault("lobby_newest_gid", {})[table_key] = uniq_gid
                             desc_full = f"{rec.number} {num_to_color(rec.number)} [lobby {table_key}]"
                             s["spins"].append({
                                 "number": rec.number,
                                 "description": desc_full,
-                                "gameId": gid,
+                                "gameId": uniq_gid,
                                 "timestamp": rec.server_ts or datetime.now().isoformat(),
                                 "captured_at": datetime.now().isoformat()
                             })
@@ -873,6 +920,22 @@ async def collect_loop():
              # authority survives restarts (DBHistoryProvider).
              "ws_history": deque(maxlen=600),
              "history_obs": []}
+
+    # Seed the lobby unique-gid counter from the DB so restarts continue
+    # the sequence (avoid UNIQUE(game_id) collisions with old rows).
+    try:
+        sconn = schema.connect()
+        row = sconn.execute(
+            "SELECT MAX(CAST(substr(game_id, -5) AS INTEGER)) FROM spin_observations "
+            "WHERE source='history' AND game_id LIKE ?",
+            (f"lobby-{LOBBY_TABLE}-%-%",),
+        ).fetchone()
+        sconn.close()
+        if row and row[0]:
+            state.setdefault("lobby_seq", {})[LOBBY_TABLE] = int(row[0])
+            print(f"  Seeded lobby gid counter from DB: {row[0]}")
+    except Exception as e:
+        print(f"  (counter seed skipped: {e})")
 
     # v3: integrity layer — schema + session. Failure degrades gracefully:
     # the canonical capture path continues without the audit trail.
