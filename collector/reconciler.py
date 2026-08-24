@@ -111,11 +111,26 @@ def normalize_record(rec) -> HistoryRecord:
     """Coerce whatever shape a provider returns into a HistoryRecord."""
     if isinstance(rec, HistoryRecord):
         return rec
-    return HistoryRecord(
-        game_id=rec.get("game_id"),
-        number=int(rec.get("number")),
-        server_ts=rec.get("server_ts"),
-        order_hint=rec.get("order_hint"),
+    # dict-shaped records (DBHistoryProvider rows, collector local spins)
+    if isinstance(rec, dict):
+        return HistoryRecord(
+            game_id=rec.get("game_id") or rec.get("gameId"),
+            number=int(rec["number"]) if rec.get("number") is not None else -1,
+            server_ts=rec.get("server_ts") or rec.get("timestamp"),
+            order_hint=rec.get("order_hint"),
+        )
+    # sqlite3.Row / Mapping-shaped records
+    if hasattr(rec, "keys") and callable(rec.keys):
+        keys = set(rec.keys())
+        num = rec["number"]
+        return HistoryRecord(
+            game_id=rec["game_id"] if "game_id" in keys else rec["gameId"],
+            number=int(num) if num is not None else -1,
+            server_ts=rec["server_ts"] if "server_ts" in keys else rec.get("timestamp"),
+            order_hint=rec["order_hint"] if "order_hint" in keys else None,
+        )
+    raise TypeError(
+        f"cannot normalize record of type {type(rec).__name__}: {rec!r}"
     )
 
 

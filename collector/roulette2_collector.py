@@ -635,23 +635,41 @@ def make_on_ws_frame(state):
                         try:
                             tail = history.parse_lobby_tail(data, LOBBY_TABLE)
                             if tail:
-                                # dedup by advancement: only store entries
-                                # NEWER than the previous newest (the tail's
-                                # positions shift every spin, so position-
-                                # based dedup re-stores repeats). Compare
-                                # against the last-stored newest number.
-                                prev_newest = s.setdefault("lobby_newest", {}).get(LOBBY_TABLE)
-                                if prev_newest is not None:
-                                    # find where the previous newest sits;
-                                    # everything before it is new
-                                    idx = None
-                                    for i, rec in enumerate(tail):
-                                        if rec.number == prev_newest:
-                                            idx = i
-                                            break
-                                    new_tail = tail[:idx] if idx is not None else []
+                                # Dedupe by physical identity: (number,
+                                # server_ts). The lobby tail re-lists the
+                                # last ~10 spins every frame — the previous
+                                # number-based prev_newest check only caught
+                                # the newest, so the same spin was re-observed
+                                # with a fresh counter on later frames, and
+                                # backfill then inserted it as a duplicate
+                                # canonical row (the 19:10:04 ×6 corruption).
+                                # With server_ts now flowing from the frame,
+                                # (number, server_ts) is stable per physical
+                                # spin; re-observations reuse the existing gid.
+                                # When the frame carries NO timestamps, fall
+                                # back to the advancement window (prev_newest
+                                # cutoff) so same-number spins aren't merged.
+                                seen = s.setdefault("lobby_phys_seen", {})
+                                has_ts = any(rec.server_ts for rec in tail)
+                                if has_ts:
+                                    new_tail = []
+                                    for rec in tail:
+                                        key = (rec.number, rec.server_ts)
+                                        if key in seen:
+                                            continue
+                                        seen[key] = True
+                                        new_tail.append(rec)
                                 else:
-                                    new_tail = tail
+                                    prev_newest = s.setdefault("lobby_newest", {}).get(LOBBY_TABLE)
+                                    if prev_newest is not None:
+                                        idx = None
+                                        for i, rec in enumerate(tail):
+                                            if rec.number == prev_newest:
+                                                idx = i
+                                                break
+                                        new_tail = tail[:idx] if idx is not None else []
+                                    else:
+                                        new_tail = tail
                                 cnt = s.setdefault("lobby_seq", {}).get(LOBBY_TABLE, 0)
                                 for rec in new_tail:
                                     cnt += 1
@@ -661,7 +679,7 @@ def make_on_ws_frame(state):
                                         "session_id": s["session_id"],
                                         "game_id": gid,
                                         "number": rec.number,
-                                        "server_ts": rec.server_ts,
+                                        "server_ts": rec.server_ts,  # physical identity
                                         "raw_payload": payload[:500],
                                         "sequence_hint": rec.order_hint,
                                     })

@@ -348,10 +348,20 @@ def parse_lobby_tail(payload: dict, table_key: str) -> list[HistoryRecord] | Non
         n = _extract_number(entry) if isinstance(entry, dict) else None
         if n is None:
             continue
+        # Physical timestamp: lobby result entries carry the spin's real
+        # server timestamp as the FIRST list element when present. Preserve
+        # it — the reconciler needs server_ts as the physical identity to
+        # dedupe the same spin re-observed in later frames (a fresh counter
+        # per frame is exactly what created the duplicate backfill rows).
+        ts = None
+        if isinstance(result, list) and len(result) > 1 and isinstance(result[1], (int, float, str)):
+            ts = str(result[1])
+        elif isinstance(entry, dict):
+            ts = entry.get("timestamp") or entry.get("ts") or entry.get("time")
         recs.append(HistoryRecord(
             game_id=f"lobby-{table_key}-{n}",
             number=n,
-            server_ts=None,
+            server_ts=ts,
             order_hint=pos,  # 0 = newest
         ))
     return recs or None

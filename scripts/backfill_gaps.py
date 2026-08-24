@@ -16,15 +16,28 @@ def backfill_gaps(conn, window=500, dry_run=False):
     # canonical game_ids present
     have = {r[0] for r in conn.execute(
         "SELECT game_id FROM roulette_spins WHERE game_id IS NOT NULL").fetchall()}
+    # Physical dedupe: obs may carry server_ts (the spin's real time) now;
+    # canonical rows carry it too. Same (number, server_ts) = same physical
+    # spin under a different synthesized gid -> skip. When either side lacks
+    # a timestamp, fall back to number-only as a weak guard (never inserts
+    # a spin whose number already appears at the SAME second — the only
+    # case that's provably a duplicate).
+    seen_phys = {(r[0], r[1]) for r in conn.execute(
+        "SELECT number, server_ts FROM roulette_spins "
+        "WHERE server_ts IS NOT NULL AND server_ts != ''").fetchall()}
     # authority observations (source='history'), newest-first
     obs = conn.execute(
-        "SELECT game_id, number FROM spin_observations WHERE source='history' "
+        "SELECT game_id, number, server_ts FROM spin_observations WHERE source='history' "
         "AND game_id IS NOT NULL ORDER BY id DESC LIMIT ?", (window,)).fetchall()
     inserted = 0
     skipped = 0
-    for gid, num in obs:
+    for gid, num, server_ts in obs:
         if gid in have:
             continue
+        if server_ts:
+            if (num, server_ts) in seen_phys:
+                skipped += 1
+                continue
         # skip legacy pre-fix gids (no trailing counter) — can't order them
         if gid.count("-") < 3:
             skipped += 1
@@ -43,7 +56,7 @@ def backfill_gaps(conn, window=500, dry_run=False):
                 (num,
                  f"{num} {('Red' if num in {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36} else 'Green' if num == 0 else 'Black')} [lobby backfill]",
                  'Red' if num in {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36} else 'Green' if num == 0 else 'Black',
-                 gid, now, now,
+                 gid, server_ts or now, now,
                  now))
             inserted += 1
         except Exception as e:
