@@ -1006,6 +1006,34 @@ async def collect_loop():
             print(f"  [RECOVERY] {label}: no new spin within {timeout_s}s")
             return False
 
+        async def post_recovery_backfill():
+            """After the stream recovers, backfill gap spins from the tail
+            authority + rebuild sequence_no. The post-recovery lobby frames
+            carry the spins that fell during the outage (tail ~10), so the
+            authority has them even though live capture missed them."""
+            try:
+                sconn = schema.connect()
+                from scripts.backfill_gaps import backfill_gaps
+                ins, skp = backfill_gaps(sconn, window=RECONCILE_WINDOW)
+                # rebuild sequence_no from game_id counters (true order)
+                import re as _re
+                rows = sconn.execute(
+                    "SELECT id, game_id FROM roulette_spins WHERE game_id LIKE ?",
+                    (f"lobby-{LOBBY_TABLE}-%-%",)).fetchall()
+                upd = 0
+                for rid, gid in rows:
+                    m = _re.search(r"-(\d+)$", gid or "")
+                    if m:
+                        sconn.execute("UPDATE roulette_spins SET sequence_no=? WHERE id=?",
+                                      (int(m.group(1)), rid))
+                        upd += 1
+                sconn.commit()
+                sconn.close()
+                if ins:
+                    print(f"  [RECOVERY] post-recovery backfill: +{ins} spins, {upd} sequenced")
+            except Exception as e:
+                print(f"  [RECOVERY] post-recovery backfill failed: {e}")
+
         async def recover(base_count):
             """PRD §30 self-healing escalation ladder — 9 rungs (0-8).
 
@@ -1033,20 +1061,24 @@ async def collect_loop():
                 repaired = [o for o in outcomes if o["resolution"] == "REPAIRED"]
                 print(f"    reconcile: {len(outcomes)} gap(s), {len(repaired)} repaired")
                 if repaired:
+                    await post_recovery_backfill()
                     return True
             except Exception as e:
                 print(f"    reconcile failed: {e}")
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after backfill"):
+                await post_recovery_backfill()
                 return True
 
             print("  [RECOVERY] L1: cross-check DOM — the secondary channel")
             await poll_dom()
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after DOM cross-check"):
+                await post_recovery_backfill()
                 return True
 
             print("  [RECOVERY] L2: re-arm WebSocket (CDP interception)")
             await setup_cdp(page, context, on_frame)
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after CDP re-arm"):
+                await post_recovery_backfill()
                 return True
 
             print("  [RECOVERY] L3: refresh game (best effort)")
@@ -1055,6 +1087,7 @@ async def collect_loop():
                 print("    refresh button not found — dumping DOM candidates for next time")
                 await dump_refresh_candidates(page)
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after refresh click"):
+                await post_recovery_backfill()
                 return True
 
             print("  [RECOVERY] L4: reload page — verifying frames resume")
@@ -1065,6 +1098,7 @@ async def collect_loop():
             await page.wait_for_timeout(5000)
             await setup_cdp(page, context, on_frame)
             if await wait_for_new_spin(base_count, RELOAD_VERIFY_S, "after reload"):
+                await post_recovery_backfill()
                 return True
 
             print("  [RECOVERY] L5: restart browser (fresh session)")
@@ -1074,6 +1108,7 @@ async def collect_loop():
                 pass
             browser, context, page = await start_session(p, state, on_frame)
             if await wait_for_new_spin(base_count, RESTART_VERIFY_S, "after browser restart"):
+                await post_recovery_backfill()
                 return True
 
             print("  [RECOVERY] L6: restart collector (full process restart)")
