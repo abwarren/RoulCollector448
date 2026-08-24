@@ -101,7 +101,8 @@ RECONCILE_LIGHT_S = 30
 RECONCILE_FULL_S = 60
 RECONCILE_WINDOW = 500
 
-STALL_THRESHOLD_S = 120   # PROCESS/REALTIME health: max legit cadence ~57s
+STALL_THRESHOLD_S = 60    # PROCESS/REALTIME health: user requires gap >= 1min
+                         # to trigger refresh + backlog backfill (was 120)
                          # between spins; >120s means the capture stream is
                          # not flowing in realtime (a stall) — triggers the
                          # §30 recovery ladder. This is NOT a data-integrity
@@ -616,14 +617,33 @@ def make_on_ws_frame(state):
                     pass
                 # NEW (2026-08): Evolution lobby stream — capture the newest
                 # spin per table when it changes. game_id is synthesized for
-                # dedup; the table key rotates per launch, so we capture ALL
-                # tables (zero loss) and tag each spin with its table key so
-                # Table 448 can be identified by matching user-confirmed
-                # numbers. Optional RC_LOBBY_TABLE filter for when the key
-                # is known/locked.
+                # dedup; the table key is STABLE per table — Table 448
+                # (Auto-Roulette R2) = 48z5pjps3ntvqc1b. Optional
+                # RC_LOBBY_TABLE filter for when the key is known/locked.
                 try:
                     lobby_recs = history.parse_lobby_history(data)
                     if lobby_recs:
+                        # Persist the FULL tail for the tracked table as
+                        # source='history' observations (the authority the
+                        # reconciler needs to backfill gaps). The lobby
+                        # frame carries ~10 recent spins — the backlog
+                        # window that closes gaps after a stall.
+                        try:
+                            tail = history.parse_lobby_tail(data, LOBBY_TABLE)
+                            if tail:
+                                for rec in tail:
+                                    s["history_obs"].append({
+                                        "source": "history",
+                                        "session_id": s["session_id"],
+                                        "game_id": rec.game_id,
+                                        "number": rec.number,
+                                        "server_ts": rec.server_ts,
+                                        "raw_payload": payload[:500],
+                                        "sequence_hint": rec.order_hint,
+                                    })
+                                flush_history_obs(s)
+                        except Exception:
+                            pass
                         seen = s.setdefault("lobby_seen", {})
                         for rec in lobby_recs:
                             gid = rec.game_id or ""
@@ -936,16 +956,12 @@ async def collect_loop():
             """
             nonlocal browser, context, page
             state["hb_status"] = "RECOVERING"
-            print("  [RECOVERY] L0: observe — passive wait, stream often self-heals")
-            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after passive wait"):
-                return True
-
-            print("  [RECOVERY] L1: cross-check DOM — the secondary channel")
-            await poll_dom()
-            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after DOM cross-check"):
-                return True
-
-            print("  [RECOVERY] L2: reconcile rolling 500 — data before destructive")
+            # Reorder (2026-08-24): backfill FIRST from the page's own
+            # lobby tail authority (non-destructive, no refresh needed),
+            # then passive wait, then DOM, then destructive refresh as a
+            # LAST resort (user: refresh "at least not often"). A gap is
+            # usually a data problem (missed lobby update), not transport.
+            print("  [RECOVERY] L0: backfill gaps from lobby tail authority — no refresh")
             try:
                 sconn = schema.connect()
                 from scripts.standalone_reconcile import recover_gaps
@@ -954,20 +970,23 @@ async def collect_loop():
                 repaired = [o for o in outcomes if o["resolution"] == "REPAIRED"]
                 print(f"    reconcile: {len(outcomes)} gap(s), {len(repaired)} repaired")
                 if repaired:
-                    # the sequence was repaired from history — the stream
-                    # itself may be fine; don't tear down the browser.
                     return True
             except Exception as e:
                 print(f"    reconcile failed: {e}")
-            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after reconcile"):
+            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after backfill"):
                 return True
 
-            print("  [RECOVERY] L3: re-arm WebSocket (CDP interception)")
+            print("  [RECOVERY] L1: cross-check DOM — the secondary channel")
+            await poll_dom()
+            if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after DOM cross-check"):
+                return True
+
+            print("  [RECOVERY] L2: re-arm WebSocket (CDP interception)")
             await setup_cdp(page, context, on_frame)
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after CDP re-arm"):
                 return True
 
-            print("  [RECOVERY] L4: refresh game (best effort)")
+            print("  [RECOVERY] L3: refresh game (best effort)")
             clicked = await click_refresh_button(page)
             if not clicked:
                 print("    refresh button not found — dumping DOM candidates for next time")
@@ -975,7 +994,7 @@ async def collect_loop():
             if await wait_for_new_spin(base_count, RUNG_WAIT_S, "after refresh click"):
                 return True
 
-            print("  [RECOVERY] L5: reload page — verifying frames resume")
+            print("  [RECOVERY] L4: reload page — verifying frames resume")
             try:
                 await asyncio.wait_for(page.reload(wait_until="domcontentloaded"), timeout=60)
             except Exception as e:
@@ -985,7 +1004,7 @@ async def collect_loop():
             if await wait_for_new_spin(base_count, RELOAD_VERIFY_S, "after reload"):
                 return True
 
-            print("  [RECOVERY] L6: restart browser (fresh session)")
+            print("  [RECOVERY] L5: restart browser (fresh session)")
             try:
                 await browser.close()
             except Exception:
@@ -994,7 +1013,7 @@ async def collect_loop():
             if await wait_for_new_spin(base_count, RESTART_VERIFY_S, "after browser restart"):
                 return True
 
-            print("  [RECOVERY] L7: restart collector (full process restart)")
+            print("  [RECOVERY] L6: restart collector (full process restart)")
             state["hb_status"] = "ABANDONED"
             write_heartbeat(state, spins)
             state["session_ok"] = False

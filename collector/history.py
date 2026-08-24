@@ -315,6 +315,48 @@ def parse_lobby_history(payload: dict) -> list[HistoryRecord] | None:
     return recs or None
 
 
+def parse_lobby_tail(payload: dict, table_key: str) -> list[HistoryRecord] | None:
+    """Parse the FULL recent-results tail for ONE table from a lobby frame.
+
+    Same frame shape as parse_lobby_history, but returns every entry in
+    `results` (newest-first) instead of only results[0]. This is the
+    backlog authority the reconciler needs to backfill gaps: when the
+    stream misses spins, the tail carries the last ~10 results, and the
+    missing numbers can be reconstructed by diffing tail vs DB.
+
+    Returns None when the frame carries no results for `table_key`.
+    """
+    if not isinstance(payload, dict):
+        return None
+    args = payload.get("args")
+    if not isinstance(args, dict):
+        return None
+    val = args.get(table_key)
+    if not isinstance(val, dict):
+        return None
+    results = val.get("results")
+    if not isinstance(results, list) or not results:
+        return None
+    recs = []
+    for pos, result in enumerate(results):
+        if isinstance(result, list):
+            entry = result[0] if result else None
+        elif isinstance(result, dict):
+            entry = result
+        else:
+            entry = None
+        n = _extract_number(entry) if isinstance(entry, dict) else None
+        if n is None:
+            continue
+        recs.append(HistoryRecord(
+            game_id=f"lobby-{table_key}-{n}",
+            number=n,
+            server_ts=None,
+            order_hint=pos,  # 0 = newest
+        ))
+    return recs or None
+
+
 class WSHistoryProvider(HistoryProvider):
     """History buffered from captured WebSocket frames (join snapshot /
     periodic history payloads), accumulated by the collector's CDP frame
