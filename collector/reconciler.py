@@ -442,9 +442,10 @@ def reconcile(local_spins, history_provider, window: int = 500,
         remote = [normalize_record(r) for r in
                   history_provider.fetch_recent_history(limit=window)]
     except Exception as e:
+        import traceback as _tb
         return ReconciliationResult(
             ok=False, plan=RepairPlan(authoritative=False),
-            window=window, message=f"history unavailable: {e}",
+            window=window, message=f"history unavailable: {e} | {_tb.format_exc()[-600:]}",
         )
 
     plan = compare_windows(local, remote)

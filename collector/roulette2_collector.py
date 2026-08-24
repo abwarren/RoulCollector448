@@ -923,17 +923,27 @@ async def collect_loop():
 
     # Seed the lobby unique-gid counter from the DB so restarts continue
     # the sequence (avoid UNIQUE(game_id) collisions with old rows).
+    # NOTE: parse the trailing counter segment properly (r"-(\d+)$") — the
+    # old MAX(CAST(substr(game_id,-5))) grabbed digits from the NUMBER too
+    # (e.g. lobby-<key>-35-106 -> "5-106" -> 5), seeding a garbage base that
+    # collided with existing counters and silently dropped new rows
+    # (INSERT OR IGNORE on UNIQUE(game_id)).
     try:
         sconn = schema.connect()
-        row = sconn.execute(
-            "SELECT MAX(CAST(substr(game_id, -5) AS INTEGER)) FROM spin_observations "
+        rows = sconn.execute(
+            "SELECT game_id FROM spin_observations "
             "WHERE source='history' AND game_id LIKE ?",
             (f"lobby-{LOBBY_TABLE}-%-%",),
-        ).fetchone()
+        ).fetchall()
         sconn.close()
-        if row and row[0]:
-            state.setdefault("lobby_seq", {})[LOBBY_TABLE] = int(row[0])
-            print(f"  Seeded lobby gid counter from DB: {row[0]}")
+        max_cnt = 0
+        for (gid,) in rows:
+            m = re.search(r"-(\d+)$", gid or "")
+            if m:
+                max_cnt = max(max_cnt, int(m.group(1)))
+        if max_cnt:
+            state.setdefault("lobby_seq", {})[LOBBY_TABLE] = max_cnt
+            print(f"  Seeded lobby gid counter from DB: {max_cnt}")
     except Exception as e:
         print(f"  (counter seed skipped: {e})")
 
