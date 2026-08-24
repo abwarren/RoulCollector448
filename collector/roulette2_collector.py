@@ -63,8 +63,17 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 
 GAME_URL = os.environ.get(
     "RC_GAME_URL",
-    "https://www.sunbet.co.za/slots-games/launch-game/?gameId=997043039547559967&openTable=448",
+    "https://www.sunbet.co.za/en/play/auto-roulette",
 )
+LOGIN_URL = os.environ.get(
+    "RC_LOGIN_URL", "https://www.sunbet.co.za/en/login"
+)
+# Evolution lobby table-key filter for Table 448 (Auto-Roulette R2).
+# Confirmed 2026-08-24: key 48z5pjps3ntvqc1b is stable per table (matches
+# user-observed numbers 6, 23 at capture start). Capture only this table.
+LOBBY_TABLE = os.environ.get("RC_LOBBY_TABLE", "48z5pjps3ntvqc1b")
+# Save batch size: flush to DB every N captured spins (default 25).
+SAVE_EVERY = int(os.environ.get("RC_SAVE_EVERY", "25"))
 STATE_FILE = os.environ.get("RC_STATE_FILE", os.path.join(_DATA_DIR, "roulette2_spins.json"))
 CSV_FILE = os.environ.get("RC_CSV_FILE", os.path.join(_DATA_DIR, "roulette2_spins.csv"))
 DB_FILE = os.environ.get("RC_DB_PATH", os.path.join(_DATA_DIR, "roulette2_spins.db"))
@@ -532,11 +541,29 @@ async def cdp(fut, label, timeout_s=CDP_TIMEOUT_S):
 
 
 async def setup_cdp(page, context, on_frame):
-    """(Re)attach CDP Network interception on the current page. Never blocks."""
+    """(Re)attach CDP Network interception to the GAME IFRAME (evo-games).
+    The game's WebSocket lives in the iframe target, not the top page. Never blocks."""
     try:
         if CDP["session"]:
             await cdp(CDP["session"].send("Network.disable"), "Network.disable")
             CDP["session"] = None
+        # Find the game iframe (evo-games) and create a CDP session ON that frame.
+        game_frame = None
+        for f in page.frames:
+            url = f.url or ""
+            if "evo-games.com" in url or "greentube" in url or "gamehost" in url:
+                game_frame = f
+                break
+        if game_frame is not None:
+            sess = await cdp(context.new_cdp_session(game_frame), "new_cdp_session_iframe")
+            if sess is not None:
+                await cdp(sess.send("Network.enable"), "Network.enable_iframe")
+                sess.on("Network.webSocketFrameReceived", on_frame)
+                sess.on("Network.webSocketFrameSent", on_frame)
+                CDP["session"] = sess
+                CDP["enabled"] = True
+                return True
+        # Fallback: attach to the top page (may miss iframe WS but keeps old behaviour).
         sess = await cdp(context.new_cdp_session(page), "new_cdp_session")
         if sess is None:
             return False
@@ -585,6 +612,52 @@ def make_on_ws_frame(state):
                                 "sequence_hint": rec.order_hint,
                             })
                         flush_history_obs(s)
+                except Exception:
+                    pass
+                # NEW (2026-08): Evolution lobby stream — capture the newest
+                # spin per table when it changes. game_id is synthesized for
+                # dedup; the table key rotates per launch, so we capture ALL
+                # tables (zero loss) and tag each spin with its table key so
+                # Table 448 can be identified by matching user-confirmed
+                # numbers. Optional RC_LOBBY_TABLE filter for when the key
+                # is known/locked.
+                try:
+                    lobby_recs = history.parse_lobby_history(data)
+                    if lobby_recs:
+                        seen = s.setdefault("lobby_seen", {})
+                        for rec in lobby_recs:
+                            gid = rec.game_id or ""
+                            # gid = lobby-<table_key>-<number>
+                            parts = gid.split("-")
+                            table_key = parts[1] if len(parts) > 1 else gid
+                            if LOBBY_TABLE and table_key != LOBBY_TABLE:
+                                continue
+                            if seen.get(table_key) == gid:
+                                continue
+                            seen[table_key] = gid
+                            desc_full = f"{rec.number} {num_to_color(rec.number)} [lobby {table_key}]"
+                            s["spins"].append({
+                                "number": rec.number,
+                                "description": desc_full,
+                                "gameId": gid,
+                                "timestamp": rec.server_ts or datetime.now().isoformat(),
+                                "captured_at": datetime.now().isoformat()
+                            })
+                            s["new_since_save"] += 1
+                            s["ws_captured"] += 1
+                            s["hb_status"] = "RUNNING"
+                            total = len(s["spins"])
+                            print(f"  [{datetime.now().strftime('%H:%M:%S')}] #{total}: {desc_full}")
+                            prev_spin = s["spins"][-2] if len(s["spins"]) >= 2 else None
+                            validate_new_spin(s, s["spins"][-1], prev_spin)
+                            if s["new_since_save"] >= SAVE_EVERY:
+                                try:
+                                    save_spins(s["spins"])
+                                    s["new_since_save"] = 0
+                                    if s.get("flush_obs"):
+                                        s["flush_obs"](s)
+                                except Exception as se:
+                                    print(f"  [SAVE] failed: {se}")
                 except Exception:
                     pass
                 # Auto Roulette message format:
@@ -658,7 +731,7 @@ def make_on_ws_frame(state):
                         pass
                     write_heartbeat(s, s["spins"])
 
-                    if s["new_since_save"] >= 25:
+                    if s["new_since_save"] >= SAVE_EVERY:
                         save_spins(s["spins"])
                         s["new_since_save"] = 0
                         if s.get("flush_obs"):
@@ -671,33 +744,72 @@ def make_on_ws_frame(state):
 async def start_session(p, state, on_frame):
     """Fresh browser -> login -> game page -> CDP setup.
     Returns (browser, context, page). Raises on hard failure."""
-    browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+    browser = await p.chromium.launch(
+        channel="chrome", headless=True,
+        args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
     context = await browser.new_context(
         viewport={"width": 1920, "height": 1080},
-        user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+        user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+        locale="en-ZA",
+        timezone_id="Africa/Johannesburg",
     )
+    await context.add_init_script(
+        "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
     page = await context.new_page()
 
-    print("[1] Loading Sunbet...")
-    await page.goto(GAME_URL, wait_until="domcontentloaded", timeout=60000)
-    await page.wait_for_timeout(5000)
+    print("[1] Loading Sunbet login...")
+    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+    await page.wait_for_timeout(8000)
 
     print("[2] Logging in...")
     try:
-        username_input = await page.wait_for_selector('#loginUsername', timeout=10000)
-        pw_input = await page.query_selector('#loginPassword')
-        if username_input and pw_input:
-            await username_input.fill(SUNBET_USER)
-            await pw_input.fill(SUNBET_PASS)
-            await page.click('#loginBtn')
-            print("   Login submitted")
-            await page.wait_for_timeout(10000)
+        username_input = page.get_by_label("Username", exact=True)
+        pw_input = page.get_by_label("Password", exact=True)
+        await username_input.fill(SUNBET_USER, timeout=10000)
+        await pw_input.fill(SUNBET_PASS)
+        try:
+            await page.locator('button[type="submit"]').first.click(timeout=5000)
+        except Exception:
+            await page.keyboard.press("Enter")
+        print("   Login submitted")
+        await page.wait_for_timeout(10000)
     except Exception as e:
-        print(f"   Already logged in: {e}")
+        print(f"   Login flow (may already be logged in): {e}")
 
-    print("[3] Getting game URL...")
-    await page.wait_for_timeout(3000)
-    iframe_elem = await page.wait_for_selector('#gameIframe', timeout=20000)
+    print("[3] Loading game URL...")
+    await page.goto(GAME_URL, wait_until="domcontentloaded", timeout=60000)
+    await page.wait_for_timeout(10000)
+    # SPA page: when logged in, the game iframe auto-loads (evo-games host).
+    # If not, try clicking the game's Play button (contained MuiButton).
+    try:
+        play_btn = page.locator('button[type="button"]:has-text("Play"), button:has-text("PLAY")').first
+        if await play_btn.is_visible(timeout=6000):
+            await play_btn.click(timeout=6000)
+            print("   PLAY clicked")
+            await page.wait_for_timeout(12000)
+    except Exception:
+        print("   No PLAY button (may auto-load)")
+    # Wait for the game iframe (evo-games / gamehost / greentube / evolution / #gameIframe)
+    iframe_elem = None
+    for _ in range(8):
+        try:
+            all_pages = context.pages
+            for pg in all_pages:
+                try:
+                    fr = pg.locator('iframe[src*="evo-games"], iframe[src*="gamehost"], iframe[src*="greentube"], iframe[src*="evolution"], #gameIframe').first
+                    if await fr.is_visible(timeout=2000):
+                        iframe_elem = fr
+                        page = pg
+                        break
+                except Exception:
+                    pass
+            if iframe_elem:
+                break
+        except Exception:
+            pass
+        await page.wait_for_timeout(5000)
+    if not iframe_elem:
+        raise RuntimeError("game iframe not found after SPA load")
     game_src = await iframe_elem.get_attribute('src')
     print(f"   Game src: {game_src[:100]}...")
 

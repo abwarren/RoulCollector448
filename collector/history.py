@@ -268,6 +268,53 @@ def parse_history_frame(payload: dict) -> list[HistoryRecord] | None:
     return best
 
 
+def parse_lobby_history(payload: dict) -> list[HistoryRecord] | None:
+    """Parse a `lobby.historyUpdated` WS frame (Evolution lobby stream).
+
+    New format (2026-08): the game iframe shows the LOBBY (all roulette
+    tables), and every table's recent results arrive in one frame:
+      {"type":"lobby.historyUpdated","args":{
+         "<table_key>":{"results":[[{"number":"21"}],[{"number":"19"}],...]}, ...}}
+    results is newest-first; each result is a list (multi-ball tables have
+    >1 entry). Returns the newest spin per table (game_id synthesized as
+    lobby-<table_key>-<number> for dedup; no server_ts in this stream).
+    None when the frame carries no lobby-history shape.
+    """
+    if not isinstance(payload, dict):
+        return None
+    args = payload.get("args")
+    if not isinstance(args, dict):
+        return None
+    # quick reject: not a per-table results map
+    if not any(isinstance(v, dict) and isinstance(v.get("results"), list)
+               for v in args.values()):
+        return None
+    recs = []
+    for table_key, val in (args or {}).items():
+        if not isinstance(val, dict):
+            continue
+        results = val.get("results")
+        if not isinstance(results, list) or not results:
+            continue
+        newest = results[0]
+        if isinstance(newest, list):
+            entry = newest[0] if newest else None
+        elif isinstance(newest, dict):
+            entry = newest
+        else:
+            entry = None
+        n = _extract_number(entry) if isinstance(entry, dict) else None
+        if n is None:
+            continue
+        recs.append(HistoryRecord(
+            game_id=f"lobby-{table_key}-{n}",
+            number=n,
+            server_ts=None,
+            order_hint=0,
+        ))
+    return recs or None
+
+
 class WSHistoryProvider(HistoryProvider):
     """History buffered from captured WebSocket frames (join snapshot /
     periodic history payloads), accumulated by the collector's CDP frame
