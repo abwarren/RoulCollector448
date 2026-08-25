@@ -1281,6 +1281,17 @@ async def collect_loop():
                             if _rc is None or (local_min_cnt <= _rc <= local_max_cnt):
                                 _aligned.append(_r)
                         if _aligned:
+                            # Sort the authority by gid counter DESC (newest
+                            # first) — obs rows from bursts share identical
+                            # observed_at, so the provider's observed_at order
+                            # returns ties arbitrarily (781 counter descents on
+                            # 2026-08-25) and the walk sees phantom reorders.
+                            # Counter order is the true order; counter-less
+                            # legacy records trail at the end.
+                            def _rc_key(_r):
+                                _c = _gid_counter(getattr(_r, "game_id", None))
+                                return _c if _c is not None else -1
+                            _aligned.sort(key=_rc_key, reverse=True)
                             remote = _aligned
                     result = reconciler.reconcile(local, history.StaticHistoryProvider(remote),
                                                   window=RECONCILE_WINDOW)
