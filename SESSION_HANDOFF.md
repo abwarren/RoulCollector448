@@ -13,20 +13,30 @@ Collect Table 448 (Auto-Roulette R2) spins 24/7 with 100% accuracy; serve via da
 - Deploy dashboard ONLY on worker-01 (user: "no need to deploy on this box only on worker")
 - 100% accuracy: gap >= 1 min auto-closes via backfill (recovery ladder L0-L6)
 
-## OPEN ACTION — POST-RESTART REPAIR (needs user go-ahead; restart auto-denied 2026-08-25 17:20)
+## OPEN ACTION — POST-RESTART REPAIR (needs user go-ahead; restart auto-denied 2026-08-25 17:20, 17:45)
 The 17:08 recovery burst inflated the gid counter +13 (old per-slot dedupe);
 the reconcile backfilled inflated obs rows into canonical as real spins
 (phantom band counters 2578-2586 = truth 2565-2573 shifted) and the
 reconstruct cascade renumbered the tail into the 200k range. FIXES are
-deployed (commit c199abb) but the RUNNING process still has old code.
-After restart, in this EXACT order:
-1. `ssh abwarren@192.168.1.100 'export XDG_RUNTIME_DIR=/run/user/$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; systemctl --user restart roulette-collector2.service'`
-2. `ssh abwarren@192.168.1.100 'cd /opt/deploy/repos/RoulCollector448 && RC_DB_PATH=/home/wa/roulette2_spins.db PYTHONPATH=/opt/deploy/repos/RoulCollector448 /opt/deploy/venv/bin/python3 scripts/restore_tail_truth.py'`
+deployed (commit c199abb + e931f74, files verified sha256-identical on
+worker-01) but the RUNNING process still has old code.
+CORRECT ORDER — STOP → RESTORE → START (not restart-then-restore):
+a stopped collector writes nothing during the purge, so the counter seeds
+from the CORRECTED obs MAX (truth band) on start. Restore-first-while-
+running or restart-then-restore both leave a window where fresh obs rows
+get purged or the seed reads a shifted MAX.
+IMPORTANT: the old code is STILL corrupting live — backfill bursts at
+18:09:53, 19:56:57, 20:25:51 wrote wrong numbers + stale timestamps into
+canonical (verified live). Do NOT delay this repair; every ~20 min adds
+more phantom rows. Run restore with LIVE journald truth (default — do NOT
+set RC_TRUTH_FILE) so the truth band extends to the stop moment and the
+newest spins are re-inserted, not lost.
+1. `ssh abwarren@192.168.1.100 'export XDG_RUNTIME_DIR=/run/user/$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; systemctl --user stop roulette-collector2.service && cd /opt/deploy/repos/RoulCollector448 && RC_DB_PATH=/home/wa/roulette2_spins.db PYTHONPATH=/opt/deploy/repos/RoulCollector448 /opt/deploy/venv/bin/python3 scripts/restore_tail_truth.py && systemctl --user start roulette-collector2.service && sleep 5 && systemctl --user is-active roulette-collector2.service'`
    (purges canonical+obs counters >= 2551, re-inserts journald truth #2551+,
-   VERIFIED, aware-UTC; counter re-seeds from obs MAX after restart)
-3. Verify: `curl -s http://192.168.1.100:4480/api/integrity` → score 100, ok:true;
+   VERIFIED, aware-UTC; collector seeds 2599 on start)
+2. Verify: `curl -s http://192.168.1.100:4480/api/integrity` → score 100, ok:true;
    spot-check canonical tail vs journald (`journalctl --user -u roulette-collector2 -n 200 | grep -oE "#[0-9]+: [0-9]+"`).
-4. Install the 30-min audit timer (cron absent on worker-01, use systemd user timer):
+3. Install the 30-min audit timer (cron absent on worker-01, use systemd user timer):
    unit files drafted in this session — roulette-audit.service/.timer under
    ~/.config/systemd/user (OnCalendar=*:0/30, ExecStart=audit_448.py with
    RC_DB_PATH=/home/wa/roulette2_spins.db RC_CRED_FILE=/home/abwarren/.config/roulette2_collector.env).
