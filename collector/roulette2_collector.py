@@ -44,6 +44,7 @@ import json, re, time, os, sys, asyncio, sqlite3
 from collections import deque
 from playwright.async_api import async_playwright
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # ---- config ----
 # All paths live under RC_DATA_DIR (default /home/wa on Linux, ~/.roulette2 on
@@ -355,6 +356,25 @@ def _score_components(state, result, conn=None) -> dict:
         except Exception:
             pass
     return comps
+
+
+def _aware_utc(ts) -> str | None:
+    """Normalize a server timestamp to aware-UTC ISO.
+
+    The direct game WS frame carries a NAIVE timestamp in the site's local
+    time (Africa/Johannesburg, UTC+2) — the same 2h skew that once triggered
+    false "future skew" flags. Aware stamps pass through; empty/unparseable
+    -> None (caller falls back to its own capture-time stamp).
+    """
+    try:
+        if not ts:
+            return None
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("Africa/Johannesburg"))
+        return dt.astimezone(timezone.utc).isoformat()
+    except Exception:
+        return None
 
 
 def _latency_seconds(a, b) -> float | None:
@@ -807,6 +827,7 @@ def make_on_ws_frame(state):
                         number = code
                     desc_full = desc if desc else f"{number} {num_to_color(number)}"
                     desc_full = " ".join(desc_full.split())
+                    ts = _aware_utc(ts) or datetime.now(timezone.utc).isoformat()
                     s["spins"].append({
                         "number": number,
                         "description": desc_full,

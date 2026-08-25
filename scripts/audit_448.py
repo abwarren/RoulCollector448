@@ -11,7 +11,8 @@ import argparse, asyncio, json, os, sqlite3, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from collector import history  # reuse the lobby parser
 
-DB_DEFAULT = "/home/gdi/roulette2/roulette2_spins.db"
+DB_DEFAULT = os.environ.get("RC_DB_PATH", "/home/gdi/roulette2/roulette2_spins.db")
+HB_DEFAULT = os.environ.get("RC_HEARTBEAT_FILE", "/home/gdi/roulette2/roulette2_heartbeat.json")
 LOBBY_KEY = os.environ.get("RC_LOBBY_TABLE", "48z5pjps3ntvqc1b")
 
 async def fetch_live_history(limit=500):
@@ -124,7 +125,7 @@ async def main():
     ap.add_argument("--db", default=DB_DEFAULT)
     ap.add_argument("--limit", type=int, default=500)
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--heartbeat", default="/home/gdi/roulette2/roulette2_heartbeat.json")
+    ap.add_argument("--heartbeat", default=HB_DEFAULT)
     args = ap.parse_args()
     live, live_err = await fetch_live_history(args.limit)
     db = audit_db(args.db, args.limit)
