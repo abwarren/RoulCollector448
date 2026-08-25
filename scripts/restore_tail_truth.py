@@ -44,12 +44,21 @@ SPIN_RE = re.compile(r"\[(\d\d:\d\d:\d\d)\]\s*#(\d+):\s*(\d+)")
 
 
 def journald_truth():
-    """(#counter, number, aware-utc iso captured_at) newest-last, from journald."""
-    out = subprocess.run(
-        ["journalctl", "--user", "-u", "roulette-collector2.service",
-         "--since", "2026-08-25 17:05:00", "--no-pager"],
-        capture_output=True, text=True, timeout=60,
-    ).stdout
+    """(#counter, number, aware-utc iso captured_at) newest-last.
+
+    Truth source: RC_TRUTH_FILE (a captured journalctl output, for offline
+    verification) or live `journalctl --user -u ...` on worker-01.
+    """
+    src_path = os.environ.get("RC_TRUTH_FILE")
+    if src_path:
+        with open(src_path, encoding="utf-8") as fh:
+            out = fh.read()
+    else:
+        out = subprocess.run(
+            ["journalctl", "--user", "-u", "roulette-collector2.service",
+             "--since", "2026-08-25 17:05:00", "--no-pager"],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
     rows = []
     for line in out.splitlines():
         m = SPIN_RE.search(line)
@@ -116,10 +125,10 @@ def main():
             conn.execute(
                 "INSERT OR IGNORE INTO roulette_spins "
                 "(game_id, number, color, description, server_ts, captured_at, "
-                " sequence_no, status, source, dedup_key, validation_status) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " sequence_no, status, source, dedup_key, observed_at, committed_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (g, number, color, f"{number} {color}", ts, ts, counter,
-                 "VALID", "history", f"gid:{g}", "VERIFIED"))
+                 "VALID", "history", f"gid:{g}", ts, ts))
             ins_c += 1
             conn.execute(
                 "INSERT OR IGNORE INTO spin_observations "
