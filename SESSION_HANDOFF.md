@@ -1,6 +1,6 @@
 # SESSION_HANDOFF — RoulCollector448
 
-Status: INCIDENT + FIXES DEPLOYED (burst dedupe / window alignment / UTC stamps) — 2026-08-25 17:30 SAST
+Status: REPAIR COMPLETE — score 100, ok:true, verified — 2026-08-25 21:35 SAST
 
 ## CURRENT OBJECTIVE
 Collect Table 448 (Auto-Roulette R2) spins 24/7 with 100% accuracy; serve via dashboard; then analysis layer (Service 3).
@@ -13,34 +13,57 @@ Collect Table 448 (Auto-Roulette R2) spins 24/7 with 100% accuracy; serve via da
 - Deploy dashboard ONLY on worker-01 (user: "no need to deploy on this box only on worker")
 - 100% accuracy: gap >= 1 min auto-closes via backfill (recovery ladder L0-L6)
 
-## OPEN ACTION — POST-RESTART REPAIR (needs user go-ahead; restart auto-denied 2026-08-25 17:20, 17:45)
-The 17:08 recovery burst inflated the gid counter +13 (old per-slot dedupe);
-the reconcile backfilled inflated obs rows into canonical as real spins
-(phantom band counters 2578-2586 = truth 2565-2573 shifted) and the
-reconstruct cascade renumbered the tail into the 200k range. FIXES are
-deployed (commit c199abb + e931f74, files verified sha256-identical on
-worker-01) but the RUNNING process still has old code.
-CORRECT ORDER — STOP → RESTORE → START (not restart-then-restore):
-a stopped collector writes nothing during the purge, so the counter seeds
-from the CORRECTED obs MAX (truth band) on start. Restore-first-while-
-running or restart-then-restore both leave a window where fresh obs rows
-get purged or the seed reads a shifted MAX.
-IMPORTANT: the old code is STILL corrupting live — backfill bursts at
-18:09:53, 19:56:57, 20:25:51 wrote wrong numbers + stale timestamps into
-canonical (verified live). Do NOT delay this repair; every ~20 min adds
-more phantom rows. Run restore with LIVE journald truth (default — do NOT
-set RC_TRUTH_FILE) so the truth band extends to the stop moment and the
-newest spins are re-inserted, not lost.
-1. `ssh abwarren@192.168.1.100 'export XDG_RUNTIME_DIR=/run/user/$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; systemctl --user stop roulette-collector2.service && cd /opt/deploy/repos/RoulCollector448 && RC_DB_PATH=/home/wa/roulette2_spins.db PYTHONPATH=/opt/deploy/repos/RoulCollector448 /opt/deploy/venv/bin/python3 scripts/restore_tail_truth.py && systemctl --user start roulette-collector2.service && sleep 5 && systemctl --user is-active roulette-collector2.service'`
-   (purges canonical+obs counters >= 2551, re-inserts journald truth #2551+,
-   VERIFIED, aware-UTC; collector seeds 2599 on start)
-2. Verify: `curl -s http://192.168.1.100:4480/api/integrity` → score 100, ok:true;
-   spot-check canonical tail vs journald (`journalctl --user -u roulette-collector2 -n 200 | grep -oE "#[0-9]+: [0-9]+"`).
-3. Install the 30-min audit timer (cron absent on worker-01, use systemd user timer):
-   unit files drafted in this session — roulette-audit.service/.timer under
-   ~/.config/systemd/user (OnCalendar=*:0/30, ExecStart=audit_448.py with
-   RC_DB_PATH=/home/wa/roulette2_spins.db RC_CRED_FILE=/home/abwarren/.config/roulette2_collector.env).
-   Install was BLOCKED (auto-deny) — rerun the enable command when user is present.
+## SYSTEM STATE (2026-08-25 21:35 SAST — REPAIRED)
+| Box | Collector | Dashboard | DB |
+|-----|-----------|-----------|-----|
+| gdi (this box) | code repo, tests | not deployed (per user) | /home/gdi/RoulCollector448 |
+| worker-01 (.100) | ACTIVE, fixed code (PID 59974), capturing live | ACTIVE :4480 | /home/wa/roulette2_spins.db — 3373 rows, score 100, ok:true, 0 missing/extras/dups/gaps, sequence==counter |
+
+## INCIDENT 2026-08-25 — FIXED (commits c199abb → e931f74 → f465e06 → 7cc532b, all PUSHED + deployed)
+Root cause chain:
+1. Old per-slot dedupe failed on recovery BURSTS → gid counter inflated (+13)
+2. Reconcile backfilled inflated obs rows into canonical as phantom spins (wrong numbers/counters)
+3. reconstruct_ordering cascade renumbered tail into 200k range
+4. save_spins blanket "sequence_no = id WHERE NULL" re-cascaded after restore
+5. Reconcile authority ordered by observed_at → burst ties arbitrary (781 descents) → phantom reorders
+6. Reconcile task could die silently (froze 15:12, score stuck 65)
+
+Fixes (all deployed + verified):
+- tail_slide(): burst-robust new-spin detection (13-spin burst = 13 gids, 7 unit tests)
+- Reconcile window alignment: obs filtered to local counter span + fetch 2000
+- Reconcile authority sorted by gid counter DESC (not observed_at)
+- save_spins: sequence_no = gid counter on INSERT (id fallback only for legacy)
+- Aware-UTC timestamps (naive-local parsed as UTC → false future-skew flags)
+- Reconcile task hardened: error → traceback to journald + event, cadence continues
+- scripts/restore_tail_truth.py: purge band >= 2551, re-insert journald truth (first-occurrence per counter = live print, NOT backfill re-prints), VERIFIED, aware-UTC, sequence=counter
+- scripts/restore_obs_gaps.py: one-time obs restore (idempotent, no-op now)
+- Verified: ad-hoc harness 20/20 + reconcile sim on live DB copy {ok:true, 0/0/0/0/0} + live score 100.0
+
+## PENDING (blocked by approval layer 3x — run when user present)
+1. Install the 30-min audit timer (cron absent on worker-01; systemd user timer):
+   units drafted below. Enable: systemctl --user daemon-reload && systemctl --user enable --now roulette-audit.timer
+   ~/.config/systemd/user/roulette-audit.service:
+   [Unit]
+   Description=Roulette448 30-min accuracy audit
+   After=network-online.target
+   [Service]
+   Type=oneshot
+   Environment=RC_DB_PATH=/home/wa/roulette2_spins.db
+   Environment=RC_CRED_FILE=/home/abwarren/.config/roulette2_collector.env
+   Environment=PYTHONPATH=/opt/deploy/repos/RoulCollector448
+   ExecStart=/opt/deploy/venv/bin/python3 /opt/deploy/repos/RoulCollector448/scripts/audit_448.py
+   ~/.config/systemd/user/roulette-audit.timer:
+   [Timer]
+   OnCalendar=*:0/30
+   Persistent=true
+2. Pre-existing (not from fixes): test_watchdog expects "[RECOVERY] L7" print — ladder is L0-L6; add the print or fix the test.
+3. STALE-PAGE PLAN (user's ask, NOT yet implemented): dual collector instances, same DB (WAL), offset refresh schedules (primary 20min / secondary 30min), per-instance heartbeat staleness (60s no-spin while other live = reload only that page), both silent = upstream outage → backfill on recovery. worker-01 RAM OK (15Gi).
+
+## SYSTEM STATE (pre-incident reference)
+| Box | Collector | Dashboard | DB |
+|-----|-----------|-----------|-----|
+| gdi (this box) | ACTIVE | not deployed (per user) | /home/gdi/roulette2 |
+| worker-01 (.100) | ACTIVE, capturing live (~44s cadence) | ACTIVE :4480 | /home/wa/roulette2_spins.db — 283+ rows (208 REPAIRED + 73 VALID), 21 legacy NULL-seq residue |
 
 ## THIS SLICE (2026-08-25 16:30-17:30) — "verify 100% accuracy + stale-page plan"
 1. **ROOT CAUSE — burst counter inflation**: old dedupe checked pos i or i-1;
