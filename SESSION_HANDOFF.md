@@ -1,6 +1,6 @@
 # SESSION_HANDOFF — RoulCollector448
 
-Status: MILESTONE 2 + DATA-FIX (backfill window 500) — 2026-08-24 20:10 SAST
+Status: INCIDENT + FIXES DEPLOYED (burst dedupe / window alignment / UTC stamps) — 2026-08-25 17:30 SAST
 
 ## CURRENT OBJECTIVE
 Collect Table 448 (Auto-Roulette R2) spins 24/7 with 100% accuracy; serve via dashboard; then analysis layer (Service 3).
@@ -12,6 +12,56 @@ Collect Table 448 (Auto-Roulette R2) spins 24/7 with 100% accuracy; serve via da
 - 30-min accuracy audit cron (audit_448.py) — distinguishes SAVE-LAG from real problems
 - Deploy dashboard ONLY on worker-01 (user: "no need to deploy on this box only on worker")
 - 100% accuracy: gap >= 1 min auto-closes via backfill (recovery ladder L0-L6)
+
+## OPEN ACTION — POST-RESTART REPAIR (needs user go-ahead; restart auto-denied 2026-08-25 17:20)
+The 17:08 recovery burst inflated the gid counter +13 (old per-slot dedupe);
+the reconcile backfilled inflated obs rows into canonical as real spins
+(phantom band counters 2578-2586 = truth 2565-2573 shifted) and the
+reconstruct cascade renumbered the tail into the 200k range. FIXES are
+deployed (commit c199abb) but the RUNNING process still has old code.
+After restart, in this EXACT order:
+1. `ssh abwarren@192.168.1.100 'export XDG_RUNTIME_DIR=/run/user/$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; systemctl --user restart roulette-collector2.service'`
+2. `ssh abwarren@192.168.1.100 'cd /opt/deploy/repos/RoulCollector448 && RC_DB_PATH=/home/wa/roulette2_spins.db PYTHONPATH=/opt/deploy/repos/RoulCollector448 /opt/deploy/venv/bin/python3 scripts/restore_tail_truth.py'`
+   (purges canonical+obs counters >= 2551, re-inserts journald truth #2551+,
+   VERIFIED, aware-UTC; counter re-seeds from obs MAX after restart)
+3. Verify: `curl -s http://192.168.1.100:4480/api/integrity` → score 100, ok:true;
+   spot-check canonical tail vs journald (`journalctl --user -u roulette-collector2 -n 200 | grep -oE "#[0-9]+: [0-9]+"`).
+4. Install the 30-min audit timer (cron absent on worker-01, use systemd user timer):
+   unit files drafted in this session — roulette-audit.service/.timer under
+   ~/.config/systemd/user (OnCalendar=*:0/30, ExecStart=audit_448.py with
+   RC_DB_PATH=/home/wa/roulette2_spins.db RC_CRED_FILE=/home/abwarren/.config/roulette2_collector.env).
+   Install was BLOCKED (auto-deny) — rerun the enable command when user is present.
+
+## THIS SLICE (2026-08-25 16:30-17:30) — "verify 100% accuracy + stale-page plan"
+1. **ROOT CAUSE — burst counter inflation**: old dedupe checked pos i or i-1;
+   a 13-spin recovery burst slides the old tail down 13 slots → EVERY entry
+   looked new each frame → gid counter +13. obs re-listings (truth 2565-2573
+   stored as 2578-2586) got backfilled into canonical by the reconcile →
+   phantom rows with WRONG counters. Numbers stayed correct (capture path
+   good), identity/sequence corrupted.
+2. **FIXED (commit c199abb, PUSHED, deployed to worker-01)**:
+   - `tail_slide()`: slide-aligned new-spin detection (burst-robust) — burst
+     of 13 yields exactly 13 new gids, zero inflation. 7 new unit tests.
+   - Reconcile window alignment: obs authority filtered to the local counter
+     span + fetch limit 2000 — the perpetual missing+extras (score stuck 65,
+     556 failed passes) resolves; ok can be true.
+   - Reconcile task hardened: task error can never die silently again.
+   - Aware-UTC timestamps: naive-local stamps parsed as UTC → false
+     "server_ts 7200s in the future" (timestamps score 0.0). Fixed.
+   - Full suite: 267 pass (1 pre-existing fail: test_watchdog L7 rung — the
+     ladder prints L0-L6 only; add "[RECOVERY] L7" print or fix the test).
+3. **Audit cron NEVER installed** (locked requirement missing) — see step 4
+   above for the systemd timer fix.
+4. **STALE-PAGE PLAN (user's ask)**: dual collector instances, same DB (WAL),
+   each own browser + OFFSET refresh schedule (primary 20min / secondary 30min)
+   so both never reload together; obs dedupes by gid (UNIQUE payload_hash);
+   per-instance heartbeat staleness detection (60s no-spin while other live =
+   reload only that page); both silent = upstream outage → backfill on recovery.
+   worker-01 RAM OK (15Gi, 14 free). Implement AFTER the post-restart repair.
+5. **Do NOT run `standalone_reconcile.run_once` on backfill-era data** —
+   reconstruct_ordering cascade renumbered the tail into 200k range on
+   2026-08-25 (same pitfall as 2026-08-24; the 203k max_seq rows are part of
+   the corrupt band being purged by restore_tail_truth.py).
 
 ## SYSTEM STATE
 | Box | Collector | Dashboard | DB |
