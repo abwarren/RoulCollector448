@@ -226,25 +226,36 @@ def save_spins(spins):
         committed_at = s.get("committed_at") or now_iso_ts
         capture_latency = _latency_seconds(server_ts, observed_at)
         commit_latency = _latency_seconds(observed_at, committed_at)
+        # sequence_no = the lobby gid counter (true order) when present, so
+        # the canonical sequence stays consistent with the obs band and the
+        # dashboard's sequence-based gap detector. The blanket
+        # "sequence_no = id WHERE NULL" fallback below (id-order) previously
+        # cascaded the tail into the 200k range on any row inserted without
+        # a sequence (2026-08-25 incident).
+        seq = None
+        m_seq = re.search(r"-(\d+)$", s.get("gameId", ""))
+        if m_seq:
+            seq = int(m_seq.group(1))
         try:
             c.execute('''
                 INSERT OR IGNORE INTO roulette_spins
                     (number, description, color, game_id, server_ts,
                      captured_at, dedup_key, observed_at, committed_at,
-                     capture_latency, commit_latency)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     capture_latency, commit_latency, sequence_no)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (int(s['number']), desc, color, s.get('gameId', ''),
                   server_ts, observed_at, dk, observed_at, committed_at,
-                  capture_latency, commit_latency))
+                  capture_latency, commit_latency, seq))
             if c.rowcount:
                 inserted += 1
         except Exception:
             pass
     # Canonical ordering (PRD §11): assign sequence_no for rows the integrity
-    # layer never touched (id order == canonical append order for new rows;
-    # repair reorders only adjust rows that already have a sequence_no).
+    # layer never touched. Lobby rows get their gid counter (set in the
+    # INSERT above); only counter-less legacy rows fall back to id order.
     try:
-        c.execute("UPDATE roulette_spins SET sequence_no = id WHERE sequence_no IS NULL")
+        c.execute("UPDATE roulette_spins SET sequence_no = id "
+                  "WHERE sequence_no IS NULL")
     except Exception:
         pass
     conn.commit()
