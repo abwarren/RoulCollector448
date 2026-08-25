@@ -43,7 +43,7 @@ repo is public.
 import json, re, time, os, sys, asyncio, sqlite3
 from collections import deque
 from playwright.async_api import async_playwright
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ---- config ----
 # All paths live under RC_DATA_DIR (default /home/wa on Linux, ~/.roulette2 on
@@ -109,9 +109,36 @@ except ImportError:                      # deployed flat script on the box
 RECONCILE_LIGHT_S = 30
 RECONCILE_FULL_S = 60
 RECONCILE_WINDOW = 500
+RECONCILE_FETCH_LIMIT = 2000  # obs fetch span — wider than the window so
+# old-but-in-window obs rows (observed_at < window edge) are still visible
+# to the walk; the reconcile then range-filters to the local span.
 
 STALL_THRESHOLD_S = 60    # PROCESS/REALTIME health: user requires gap >= 1min
                          # to trigger refresh + backlog backfill (was 120)
+
+
+def tail_slide(tail_nums, prev_tail_nums):
+    """How many of the NEWEST tail entries are genuinely new spins.
+
+    The lobby frame re-lists the last ~10 spins every few seconds; a new
+    spin pushes the old tail down one slot. When a recovery BURST lands (K
+    new spins in one frame), the old tail slides down K slots — the old
+    per-slot / i-1 checks then misclassify EVERY entry as new and the gid
+    counter inflates by the tail length per frame. This returns K = the
+    position where the PREVIOUS newest re-appears (0 = pure re-listing,
+    len(tail) = fully rotated). Falls back to prev_tail[1] as a 1-slot
+    drift anchor; if the previous newest rolled off entirely the whole
+    tail counts as new (it IS new — the gap exceeded the tail length).
+    """
+    if not prev_tail_nums:
+        return len(tail_nums)
+    prev_newest = prev_tail_nums[0]
+    for k in range(len(tail_nums)):
+        if tail_nums[k] == prev_newest:
+            return k
+        if k + 1 < len(prev_tail_nums) and tail_nums[k] == prev_tail_nums[1]:
+            return k + 1
+    return len(tail_nums)
                          # between spins; >120s means the capture stream is
                          # not flowing in realtime (a stall) — triggers the
                          # §30 recovery ladder. This is NOT a data-integrity
@@ -178,7 +205,7 @@ def save_spins(spins):
     schema.ensure_schema(conn)
     inserted = 0
     no_identity = 0
-    now_iso_ts = datetime.now().isoformat()
+    now_iso_ts = datetime.now(timezone.utc).isoformat()
     for s in spins:
         desc = s.get("description", "")
         color = num_to_color(s['number']) if isinstance(s['number'], int) else "Green"
@@ -458,7 +485,7 @@ def write_heartbeat(state, spins):
             "color": color,
         })
     hb = {
-        "at": datetime.now().isoformat(),
+        "at": datetime.now(timezone.utc).isoformat(),
         "status": state.get("hb_status", "RUNNING"),
         "spins_count": len(spins),
         "ws_captured": state.get("ws_captured", 0),
@@ -660,16 +687,29 @@ def make_on_ws_frame(state):
                                 # (A 2+ spin burst can under-capture; the
                                 # reconciler backfills those — duplication
                                 # is worse than a rare recoverable gap.)
-                                prev_tail = s.setdefault("lobby_prev_tail", {})
+                                prev_tail = s.setdefault("lobby_prev_tail", [])
                                 new_tail = []
-                                for i, rec in enumerate(tail):
-                                    if prev_tail.get(i) == rec.number:
-                                        continue  # same slot, same spin
-                                    if i > 0 and prev_tail.get(i - 1) == rec.number:
-                                        continue  # slid down one slot
-                                    new_tail.append(rec)
-                                s["lobby_prev_tail"] = {i: rec.number
-                                                        for i, rec in enumerate(tail)}
+                                # SLIDE-ALIGNED new-spin detection (burst-robust,
+                                # 2026-08-25). The old 1-slot check
+                                # (pos i or i-1) failed on recovery BURSTS:
+                                # when K new spins land in one frame the old
+                                # tail slides down K slots, so every entry
+                                # looked "new" every frame and the gid counter
+                                # inflated (+13 in one burst on 2026-08-25,
+                                # which then corrupted the canonical tail via
+                                # backfill). Fix: find the slide K where the
+                                # PREVIOUS newest re-appears in the current
+                                # tail; positions 0..K-1 are genuinely new,
+                                # positions >= K are re-listings. If the
+                                # previous newest rolled off entirely (gap >
+                                # tail length) the whole tail is new.
+                                if prev_tail:
+                                    slide_k = tail_slide([r.number for r in tail],
+                                                         prev_tail)
+                                    new_tail = tail[:slide_k]
+                                else:
+                                    new_tail = tail  # first frame
+                                s["lobby_prev_tail"] = [rec.number for rec in tail]
                                 cnt = s.setdefault("lobby_seq", {}).get(LOBBY_TABLE, 0)
                                 gid_map = {}
                                 for rec in new_tail:
@@ -716,8 +756,12 @@ def make_on_ws_frame(state):
                                 "number": rec.number,
                                 "description": desc_full,
                                 "gameId": uniq_gid,
-                                "timestamp": rec.server_ts or datetime.now().isoformat(),
-                                "captured_at": datetime.now().isoformat()
+                                # Lobby frames carry NO server ts — stamp the
+                                # OBSERVATION time as the truth, timezone-aware
+                                # UTC (naive local stamps parse as UTC and
+                                # trigger false "future skew" / stall flags).
+                                "timestamp": rec.server_ts or datetime.now(timezone.utc).isoformat(),
+                                "captured_at": datetime.now(timezone.utc).isoformat()
                             })
                             s["new_since_save"] += 1
                             s["ws_captured"] += 1
@@ -757,10 +801,10 @@ def make_on_ws_frame(state):
                         "description": desc_full,
                         "gameId": game_id,
                         "timestamp": ts,
-                        "captured_at": datetime.now().isoformat()
+                        "captured_at": datetime.now(timezone.utc).isoformat()
                     })
                     # v3: record the raw observation (immutable) — dedup by content
-                    obs_ts = datetime.now().isoformat()
+                    obs_ts = datetime.now(timezone.utc).isoformat()
                     s["obs_buffer"].append({
                         "source": "websocket",
                         "session_id": s["session_id"],
@@ -1186,7 +1230,7 @@ async def collect_loop():
                     else:
                         try:
                             dbrecs = history.DBHistoryProvider().fetch_recent_history(
-                                limit=RECONCILE_WINDOW)
+                                limit=RECONCILE_FETCH_LIMIT)
                         except Exception:
                             dbrecs = []
                         if dbrecs:
@@ -1198,6 +1242,35 @@ async def collect_loop():
                             history_source = "dom"
                     local = [{"game_id": s.get("gameId"), "number": s["number"],
                               "server_ts": s.get("timestamp")} for s in spins]
+                    # Align the authority window to the LOCAL span. Obs rows
+                    # can run AHEAD of state spins (phantom counters from
+                    # recovery bursts / re-observation), and obs rows for
+                    # OLD in-window spins sit outside a blind last-500 fetch
+                    # (observed_at order). A misaligned window makes every
+                    # pass report missing+extras forever and ok can never be
+                    # true (score stuck at 65). Fetch a generous obs span and
+                    # keep only records whose counter falls in [local_min,
+                    # local_max]; counter-less records (legacy/dom) are kept.
+                    def _gid_counter(gid):
+                        m = re.search(r"-(\d+)$", gid or "")
+                        return int(m.group(1)) if m else None
+                    local_min_cnt = None
+                    local_max_cnt = None
+                    for _s in local:
+                        _c = _gid_counter(_s.get("game_id"))
+                        if _c is not None:
+                            if local_min_cnt is None or _c < local_min_cnt:
+                                local_min_cnt = _c
+                            if local_max_cnt is None or _c > local_max_cnt:
+                                local_max_cnt = _c
+                    if local_min_cnt is not None and local_max_cnt is not None:
+                        _aligned = []
+                        for _r in remote:
+                            _rc = _gid_counter(getattr(_r, "game_id", None))
+                            if _rc is None or (local_min_cnt <= _rc <= local_max_cnt):
+                                _aligned.append(_r)
+                        if _aligned:
+                            remote = _aligned
                     result = reconciler.reconcile(local, history.StaticHistoryProvider(remote),
                                                   window=RECONCILE_WINDOW)
                     # Phase 4: apply deterministic repairs only when the
@@ -1278,10 +1351,26 @@ async def collect_loop():
                         last_full = now
                     last_light = now
                 except Exception as e:
-                    observer.log_event(schema.connect(), "RECONCILIATION",
-                                       severity="WARNING",
-                                       details={"error": str(e)},
-                                       root_cause="DATA_INTEGRITY")
+                    # HARDENED: a reconcile-task error must NEVER kill the
+                    # task (it died silently for hours on 2026-08-25 — events
+                    # froze at 15:12 while capture continued). Log traceback
+                    # to journald AND an event; keep the cadence moving.
+                    import traceback as _tb
+                    _tb_s = _tb.format_exc()
+                    try:
+                        print(f"  [RECONCILE] task error: {e}\n{_tb_s}")
+                    except Exception:
+                        pass
+                    try:
+                        observer.log_event(schema.connect(), "RECONCILIATION_FAILED",
+                                           severity="WARNING",
+                                           details={"error": str(e),
+                                                    "traceback": _tb_s[-2000:]},
+                                           root_cause="DATA_INTEGRITY")
+                    except Exception:
+                        pass
+                    finally:
+                        last_light = now
 
         task = asyncio.create_task(reconcile_task())
 
@@ -1320,7 +1409,13 @@ async def collect_loop():
                 # produced its first spin (bootstrap watchdog after 4 min).
                 if spins:
                     last_spin_time = spins[-1]["captured_at"]
-                    sec_since_last = (datetime.now() - datetime.fromisoformat(last_spin_time)).total_seconds()
+                    try:
+                        _lst = datetime.fromisoformat(last_spin_time)
+                        if _lst.tzinfo is None:
+                            _lst = _lst.replace(tzinfo=timezone.utc)
+                        sec_since_last = (datetime.now(timezone.utc) - _lst).total_seconds()
+                    except Exception:
+                        sec_since_last = elapsed
                 else:
                     sec_since_last = elapsed
                 if sec_since_last > STALL_THRESHOLD_S and (spins or elapsed > 240):
