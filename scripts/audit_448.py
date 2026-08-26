@@ -8,6 +8,8 @@ out-of-order spins. Used by the 30-min cron for data-accuracy self-correction.
 Usage: python3 audit_448.py [--db PATH] [--limit 500]
 """
 import argparse, asyncio, json, os, sqlite3, sys, time
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from collector import history  # reuse the lobby parser
 
@@ -102,7 +104,24 @@ def audit_db(db_path, limit=500):
             "SELECT number, server_ts FROM roulette_spins ORDER BY id DESC LIMIT ?",
             (limit,)).fetchall()
         ts = [r[1] for r in rows]
-        order_ok = all((t1 or "") >= (t2 or "") for t1, t2 in zip(ts, ts[1:])) if len(ts) > 1 else True
+        order_ok = True
+        for t1, t2 in zip(ts, ts[1:]):
+            try:  # parse-aware: naive (SAST) vs aware-UTC mix breaks string compare
+                d1 = datetime.fromisoformat((t1 or "").replace("Z", "+00:00"))
+                d2 = datetime.fromisoformat((t2 or "").replace("Z", "+00:00"))
+                if d1.tzinfo is None:
+                    d1 = d1.replace(tzinfo=ZoneInfo("Africa/Johannesburg"))
+                if d2.tzinfo is None:
+                    d2 = d2.replace(tzinfo=ZoneInfo("Africa/Johannesburg"))
+                # Compare at SECOND precision: the direct WS path stamps the
+                # frame's server_ts (whole seconds), the lobby path stamps
+                # now() (microseconds) — same-second pairs are same spin time.
+                if d1.replace(microsecond=0) < d2.replace(microsecond=0):
+                    order_ok = False
+                    break
+            except ValueError:
+                order_ok = False
+                break
         return {"ok": True, "spins": n, "window": len(rows),
                 "newest": rows[0][0] if rows else None,
                 "newest_ts": rows[0][1] if rows else None,

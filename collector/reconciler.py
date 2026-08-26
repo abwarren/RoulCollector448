@@ -20,6 +20,7 @@ then escalate browser/session recovery).
 """
 
 import datetime
+import re
 from dataclasses import dataclass, field
 
 
@@ -355,7 +356,14 @@ def compare_windows(local, remote) -> RepairPlan:
         # (identity: game_id, else ts+number — PRD §14 levels 1-2)
         for r in remote:
             if r.game_id and r.game_id not in lset:
-                plan.missing_seq[r.game_id] = len(remote) - rpos[r.game_id]
+                # Lobby gids carry their TRUE absolute sequence in the
+                # trailing counter — use it verbatim. Window-relative
+                # positions collide with legacy rows (2026-08-25/26:
+                # backfill assigned 472-474 to counters 3509-3511,
+                # interleaving old and new rows).
+                m = re.search(r"-(\d+)$", r.game_id or "")
+                plan.missing_seq[r.game_id] = int(m.group(1)) if m else (
+                    len(remote) - rpos[r.game_id])
             elif not r.game_id and r.server_ts:
                 if not any(l.get("server_ts") == r.server_ts
                            and l.get("number") == r.number for l in local):

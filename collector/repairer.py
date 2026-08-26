@@ -25,6 +25,7 @@ The reconciler (Phase 3) -> repairer (Phase 4) -> verify loop is the PRD's
 """
 
 import json
+import re
 import sqlite3
 
 from collector.observer import now_iso
@@ -274,13 +275,22 @@ class Repairer:
     def reorder_window(self, game_ids_in_order: list[str], start: int = 1,
                        commit: bool = True) -> int:
         """Assign sequence_no start..start+N-1 to the given game_ids in order.
-        Returns the count renumbered."""
+        Returns the count renumbered.
+
+        Lobby gids (lobby-<key>-<n>-<cnt>) carry their TRUE sequence in the
+        trailing counter — window-relative positions would destroy it
+        (2026-08-25: counters 3214-3243 renumbered to 136-165). Counter-
+        bearing gids are set to their counter (idempotent no-op); only
+        counter-less legacy rows get window positions.
+        """
         n = 0
         for i, gid in enumerate(game_ids_in_order, start=start):
+            m = re.search(r"-(\d+)$", gid or "")
+            seq = int(m.group(1)) if m else i
             cur = self.conn.execute(
                 "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
                 "WHERE game_id=?",
-                (i, now_iso(), gid),
+                (seq, now_iso(), gid),
             )
             n += cur.rowcount
         if commit:
@@ -577,6 +587,9 @@ class Repairer:
             # legacy plans fall back to reorder_window.
             if plan.renumber:
                 for gid, seq in plan.renumber:
+                    m = re.search(r"-(\d+)$", gid or "")
+                    if m:  # lobby gid counter is the truth — idempotent no-op
+                        seq = int(m.group(1))
                     cur = self.conn.execute(
                         "UPDATE roulette_spins SET sequence_no=?, last_verified_at=? "
                         "WHERE game_id=?",

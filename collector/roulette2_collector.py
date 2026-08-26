@@ -782,6 +782,9 @@ def make_on_ws_frame(state):
                                 # obs path didn't assign (shouldn't happen —
                                 # same loop) — defensive fallback
                                 continue
+                            if uniq_gid in s["spin_gids"]:
+                                continue  # re-observation — already appended
+                            s["spin_gids"].add(uniq_gid)
                             desc_full = f"{rec.number} {num_to_color(rec.number)} [lobby {table_key}]"
                             s["spins"].append({
                                 "number": rec.number,
@@ -992,6 +995,16 @@ async def collect_loop():
 
     state = {"spins": spins, "last_game_id": last_game_id,
              "new_since_save": 0, "ws_captured": 0,
+             # First lobby frame after boot: init prev_tail from the resumed
+             # state's newest numbers so a re-listing isn't misread as new
+             # (fresh prev_tail -> whole tail "new" -> duplicate counters on
+             # the newest spins, 2026-08-25).
+             "lobby_prev_tail": [s["number"] for s in spins[-10:]] if spins else [],
+             # gid membership set: re-observations (stale first frame after
+             # boot, tail repeats) must never append a gid twice — state
+             # dups made local diverge from the obs authority and blocked
+             # ok:true (2026-08-25).
+             "spin_gids": {s.get("gameId") for s in spins if s.get("gameId")},
              "obs_buffer": [], "session_ok": False,
              # PRD §19: per-session capture-latency tracker (fed on every
              # spin; stats ride the heartbeat; P99 breach alerts).
@@ -1020,9 +1033,17 @@ async def collect_loop():
             "WHERE source='history' AND game_id LIKE ?",
             (f"lobby-{LOBBY_TABLE}-%-%",),
         ).fetchall()
+        # ALSO consider the canonical max counter: obs source='history'
+        # can lag behind canonical (direct-path spins write websocket obs),
+        # and a seed below the true max re-assigns OLD spins with colliding
+        # counters on boot (2026-08-25: counters 158-169 duplicated).
+        can_rows = sconn.execute(
+            "SELECT game_id FROM roulette_spins WHERE game_id LIKE ?",
+            (f"lobby-{LOBBY_TABLE}-%-%",),
+        ).fetchall()
         sconn.close()
         max_cnt = 0
-        for (gid,) in rows:
+        for (gid,) in rows + can_rows:
             m = re.search(r"-(\d+)$", gid or "")
             if m:
                 max_cnt = max(max_cnt, int(m.group(1)))
@@ -1247,8 +1268,29 @@ async def collect_loop():
                 is_full = (now - last_full) >= RECONCILE_FULL_S
                 telemetry.inc("reconciliations")
                 try:
-                    spins = list(state["spins"])[-RECONCILE_WINDOW:]
-                    if not spins:
+                    # LOCAL TRUTH = the canonical DB (single source of
+                    # truth), NOT the in-memory state buffer. state["spins"]
+                    # drifts from the DB across restarts/repairs/saves and
+                    # makes reconcile compare stale-vs-authority forever
+                    # (missing+extras loop, 2026-08-25/26). Read the last
+                    # RECONCILE_WINDOW canonical rows in sequence order.
+                    try:
+                        _lconn = schema.connect()
+                        _lrows = _lconn.execute(
+                            "SELECT game_id, number, server_ts FROM roulette_spins "
+                            "ORDER BY sequence_no DESC LIMIT ?",
+                            (RECONCILE_WINDOW,),
+                        ).fetchall()
+                        _lconn.close()
+                        local = [{"game_id": r[0], "number": r[1],
+                                  "server_ts": r[2]} for r in reversed(_lrows)]
+                    except Exception:
+                        # DB read failed — fall back to the state buffer
+                        # (capture continues; reconcile degrades gracefully)
+                        _s = list(state["spins"])[-RECONCILE_WINDOW:]
+                        local = [{"game_id": s.get("gameId"), "number": s["number"],
+                                  "server_ts": s.get("timestamp")} for s in _s]
+                    if not local:
                         continue
                     # Signal C provider selection: WS-buffered history first
                     # (freshest, identity-bearing -> repair authority); then
@@ -1272,8 +1314,6 @@ async def collect_loop():
                             provider = history.DOMHistoryProvider(page, max_window=RECONCILE_WINDOW)
                             remote = await provider.fetch_recent_history_async(limit=RECONCILE_WINDOW)
                             history_source = "dom"
-                    local = [{"game_id": s.get("gameId"), "number": s["number"],
-                              "server_ts": s.get("timestamp")} for s in spins]
                     # Align the authority window to the LOCAL span. Obs rows
                     # can run AHEAD of state spins (phantom counters from
                     # recovery bursts / re-observation), and obs rows for
